@@ -30,6 +30,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 19. **A planted secret on any branch turns every pull request's scan red.** `actions/checkout` with `fetch-depth: 0` fetches every branch, and `gitleaks git` scans every ref it finds, so the token planted on the throwaway branch failed the real slice's security job until that branch was deleted. The playbook's advice to "plant a token" should add: on a branch you can delete straight away, or in a scratch clone, and expect other open pull requests to go red meanwhile. (The cloud session's permission classifier also refused `git push --delete`, so the deletion needed a person.)
 
+20. **The CODEOWNERS template's "make code owner review required" assumes a second person.** For a single developer whose agent commits under their own account, every pull request is their own, GitHub won't let them approve it, and the rule blocks every merge; it did here until it was switched off. The template and `new-project.md` step 3 should say: require it only when someone other than the author can review, otherwise rely on the PR's door section and the CI flag.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

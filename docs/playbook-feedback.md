@@ -28,6 +28,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 17. **The fresh-context review earned its place on slice 1 alone.** It found a real privilege gap (a default-privilege statement that stored nothing), a CI job that could pass on a failing test, and two criteria the tests claimed but didn't check, all before CI ran. The cost was one subagent run of about 140k tokens.
 18. **Rule 9's "fail on nothing" needs a Go note on pipes.** `go test ./... | tee log` in a GitHub Actions `run:` step exits 0 on failure unless `shell: bash` (which adds `-o pipefail`) is set. The CI template's steps don't pipe, so it never meets this; a Go or shell adaptation does on its first `tee`.
 
+19. **A planted secret on any branch turns every pull request's scan red.** `actions/checkout` with `fetch-depth: 0` fetches every branch, and `gitleaks git` scans every ref it finds, so the token planted on the throwaway branch failed the real slice's security job until that branch was deleted. The playbook's advice to "plant a token" should add: on a branch you can delete straight away, or in a scratch clone, and expect other open pull requests to go red meanwhile. (The cloud session's permission classifier also refused `git push --delete`, so the deletion needed a person.)
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

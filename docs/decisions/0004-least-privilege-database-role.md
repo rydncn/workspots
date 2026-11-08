@@ -8,7 +8,7 @@ Rule 2 of the playbook: privileges are verified in the catalogue, not inferred f
 
 ## Decision
 
-`workspots_migrate` owns every object and runs migrations. `workspots_app` holds only CONNECT, USAGE on the schema, SELECT/INSERT/UPDATE/DELETE on application tables and USAGE on their sequences, granted explicitly by each migration. `PUBLIC` has nothing on the `public` schema. A test (AC30) checks this on an empty migrated database.
+`workspots_migrate` owns every object and runs migrations. `workspots_app` holds only CONNECT, USAGE on the schema, SELECT/INSERT/UPDATE/DELETE on application tables and USAGE on their sequences, granted by default privileges set in the first migration so a new table cannot be forgotten. `PUBLIC` has nothing on the `public` schema. A test (AC30) checks this on an empty migrated database.
 
 ## Rejected options
 
@@ -17,4 +17,4 @@ Rule 2 of the playbook: privileges are verified in the catalogue, not inferred f
 
 ## Consequences
 
-Every migration that adds a table must also grant on it, or the acceptance tests fail with permission denied, which is the point.
+A table that needs fewer grants (an audit log the app only inserts into, say) revokes them in its own migration; AC30's test is where that would be noticed.

@@ -8,7 +8,7 @@ Rule 16 asks for the tier to be recorded. Tests must be isolated, parallel and l
 
 ## Decision
 
-Tier 1: Go tests start the real server in-process with `httptest` against a real Postgres, each test with its own database created from a migrated template and dropped afterwards. Tier 2: Playwright drives the built binary with JavaScript off for the main journeys, axe and keyboard checks; a smoke subset runs against the production image in the release rehearsal. Tier 3: none, there is no device surface.
+Tier 1: Go tests start the real server in-process with `httptest` against a real Postgres, each test with its own database, created and migrated from empty and dropped afterwards. Tier 2: Playwright drives the built binary with JavaScript off for the main journeys, axe and keyboard checks; a smoke subset runs against the production image in the release rehearsal. Tier 3: none, there is no device surface.
 
 ## Rejected options
 
@@ -18,4 +18,4 @@ Tier 1: Go tests start the real server in-process with `httptest` against a real
 
 ## Consequences
 
-Creating a database costs about a hundred milliseconds per test, acceptable for tens of tests. The development migrate role needs CREATEDB; the production one does not.
+Creating and migrating a database costs about a hundred milliseconds per test, acceptable for tens of tests. The development migrate role needs CREATEDB; the production one does not.

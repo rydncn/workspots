@@ -152,4 +152,4 @@ CI builds the production image, starts it against a fresh Postgres with producti
 
 ## Test tiers
 
-Tier 1: Go acceptance tests drive the real server in-process over HTTP against a real Postgres, one database per test created from a migrated template, dropped afterwards (ADR 0005). Tier 2: Playwright drives the built binary for the main journeys, axe and keyboard checks, with JavaScript off; the release rehearsal runs a smoke subset against the production image. Tier 3: none; there is no device surface.
+Tier 1: Go acceptance tests drive the real server in-process over HTTP against a real Postgres, one database per test created and migrated from empty, dropped afterwards (ADR 0005). Tier 2: Playwright drives the built binary for the main journeys, axe and keyboard checks, with JavaScript off; the release rehearsal runs a smoke subset against the production image. Tier 3: none; there is no device surface.

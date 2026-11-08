@@ -24,6 +24,10 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 14. **Two gates could not be proven locally:** govulncheck (the vulnerability database is not reachable through this environment's proxy) and the whole-workflow run itself. Both are proven by CI's first run and a deliberately broken pull request.
 15. **Rule 16's isolation advice is npm shaped** (`--randomize`, `sequence.shuffle`). Go's equivalents are `-shuffle=on`, `-count=1` and `t.Parallel()`; worth a line in the rule.
 
+16. **The gitleaks proof advice needs one more word: entropy.** `new-project.md` and `GATES.md` say to plant "a `ghp_` token of the right length". A token of the right length made of one repeated character passes gitleaks' entropy check silently, and so did my first proof. Say "random characters", or give a command that generates one.
+17. **The fresh-context review earned its place on slice 1 alone.** It found a real privilege gap (a default-privilege statement that stored nothing), a CI job that could pass on a failing test, and two criteria the tests claimed but didn't check, all before CI ran. The cost was one subagent run of about 140k tokens.
+18. **Rule 9's "fail on nothing" needs a Go note on pipes.** `go test ./... | tee log` in a GitHub Actions `run:` step exits 0 on failure unless `shell: bash` (which adds `-o pipefail`) is set. The CI template's steps don't pipe, so it never meets this; a Go or shell adaptation does on its first `tee`.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

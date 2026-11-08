@@ -9,8 +9,8 @@ How context is measured: the playbook's context-budget hook reads the transcript
 ### Slice 0: design and setup (this log, the design, ADRs, `scripts/dev-db.sh`)
 
 - Criteria delivered: none (design only).
-- Sessions: 1 so far. Peak context: hook not yet installed; estimated 120k at the end of the design (see note above on the floor). Wall clock: about 1 hour.
-- Defects found: none (nothing to test yet).
+- Sessions: 1. Peak context: hook not yet installed; about 160k reported by the harness at the end, of which about 80k is the floor. Wall clock: about 1.5 hours including Ryan's review.
+- Defects found: 4 by the human design review (login CSRF uncovered, session rotation missing from AC8, no maximum password length, rehearsal HTTPS versus AC27). None by tooling: nothing to test yet.
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

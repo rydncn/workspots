@@ -15,7 +15,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 ## As the work goes
 
-(Added per slice.)
+9. **The design review by a person found four gaps the template's prompts didn't ask about:** login CSRF (tokens "tied to the session" when there is no session yet), session rotation at sign-in (in `api.md` but not surfaced as a criterion), a maximum password length so argon2id can't be used for denial of service, and how a local release rehearsal provides HTTPS when production mode insists on it. `api.md` could carry the first three as one-liners; `GATES.md`'s release row could mention the TLS proxy.
+10. **A handoff file was needed after all.** The design session passed the context budget before slice 1 started (the harness floor is about 80k; see item 3), so `docs/handoff.md` was written to carry "design approved, start slice 1" into a fresh session. The task asked for a reason: the budget, not the size of the work.
 
 ## Review layers
 

@@ -38,6 +38,8 @@ Data: `users` (id, email, password_hash, role, created_at), `sessions` (hashed t
 
 Errors: every error response is an RFC 9457 problem. A request whose `Accept` prefers `text/html` gets the same problem rendered as an HTML page with the same fields; anything else gets `application/problem+json`. Both carry the correlation ID.
 
+CSRF: one mechanism before and after sign-in. A `__Host-csrf` cookie (`Secure`, `HttpOnly`, `SameSite=Lax`) holds a random secret, issued with any form when absent; the form's hidden token is an HMAC-SHA256 of the session ID (or `anonymous` before sign-in) keyed by that secret, so the token is tied to the session once one exists and to the browser before. Both cookies rotate at sign-in. Independently, every `POST` must carry a same-origin `Origin` or `Sec-Fetch-Site: same-origin`.
+
 Email: the app composes messages (welcome, password changed, account deleted) and hands them to a sender. The development sender writes them to a plain "dev outbox" stream, separate from the structured log, so the structured log never carries an address.
 
 What is real in tests: the real server, the real Postgres with every migration applied, real sessions and password hashing. Faked at the edge: the mail sender (a recording fake), the clock and the request IP. Nothing else.
@@ -81,9 +83,9 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 ### Accounts
 
-**AC7. Sign up.** Given no account for the address, when someone signs up with an email and a password of at least 12 characters, then an account with role `member` exists and the dev outbox holds a welcome message to that address. Given an account already exists for the address, then no account is created, the dev outbox holds a "you already have an account" message instead, and the page shown is the same "check your email, then sign in" page in both cases. A password under 12 characters re-renders the form with a 422, the email kept.
+**AC7. Sign up.** Given no account for the address, when someone signs up with an email and a password of at least 12 characters, then an account with role `member` exists and the dev outbox holds a welcome message to that address. Given an account already exists for the address, then no account is created, the dev outbox holds a "you already have an account" message instead, and the page shown is the same "check your email, then sign in" page in both cases. A password under 12 characters or over 1,024 bytes re-renders the form with a 422, the email kept; the length is checked before any hashing, so a long password never reaches argon2id (also at sign-in and password change).
 
-**AC8. Sign in and refusal look alike.** Given an account, when its owner signs in with the right password, then a `__Host-session` cookie is set (`Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`) and the account page shows their address; when the password is wrong, or the address has no account, then the response is a 422 with the same message in both cases and no cookie.
+**AC8. Sign in and refusal look alike.** Given an account, when its owner signs in with the right password, then a `__Host-session` cookie is set (`Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`) whose value differs from any session cookie the browser sent, the previous session (if any) is ended on the server, and the account page shows their address; when the password is wrong, or the address has no account, then the response is a 422 with the same message in both cases and no cookie.
 
 **AC9. Sign out ends the session on the server.** Given a signed-in session, when its owner signs out, then the cookie is cleared and a request replaying the old cookie is treated as signed out.
 
@@ -103,7 +105,7 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC16. A report shows at once.** Given a signed-in member and an approved spot, when they rate each attribute and add a note of up to 500 characters, then the report appears on the spot page with today's date and the spot's attributes reflect it; a note over 500 characters is a 422.
 
-**AC17. Cross-site writes are refused.** Given a signed-in session, when any state-changing form is posted without its CSRF token, with another session's token, or with a cross-site `Origin`, then the response is a 403 problem and nothing changed; a `GET` to any write path is a 405 problem.
+**AC17. Cross-site writes are refused.** Given a signed-in session, when any state-changing form is posted without its CSRF token, with another session's token, or with a cross-site `Origin` or `Sec-Fetch-Site`, then the response is a 403 problem and nothing changed; a `GET` to any write path is a 405 problem. Given a signed-out visitor, when the sign-in or sign-up form is posted without the pre-session token issued with the form, or with a cross-site `Origin`, then the response is a 403 problem and no session is created (login CSRF).
 
 **AC22. Report a problem.** Given a signed-in member and a spot or report, when they report a problem with a reason, then it appears in the moderation queue for moderators and the member sees a confirmation.
 
@@ -135,9 +137,13 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC30. The app role owns nothing and has only what it needs.** Given an empty database with every migration applied, when the catalogue is queried, then `workspots_app` owns no object, has no `CREATE` on any schema, has `SELECT/INSERT/UPDATE/DELETE` only on the application tables and `USAGE` on their sequences, can execute no `SECURITY DEFINER` function, and `PUBLIC` has no privilege on the `public` schema.
 
+## Release rehearsal
+
+CI builds the production image, starts it against a fresh Postgres with production-style configuration (`WORKSPOTS_ENV=production`, a generated database password, `BASE_URL=https://localhost:8443`, `TRUSTED_PROXY` set to the proxy's address), runs the migrations, runs a smoke subset of the end-to-end tests, then scans the image. HTTPS comes from a TLS-terminating reverse proxy in front of the app (Caddy, pinned by digest, with its internal throwaway certificate authority), so the app's own configuration is exactly what production would get and AC27 is not weakened; the browser in the smoke tests trusts the throwaway certificate for that run only. The app itself never terminates TLS: that is the proxy's job in production too, and the app reads the client IP from `X-Forwarded-For` only when the connection comes from `TRUSTED_PROXY`.
+
 ## Slices
 
-1. **Walking skeleton and gates:** server, config, correlation IDs, problem details, security headers, migrations, the app role, CI, hooks, `CLAUDE.md`, and the home page. AC1, AC23, AC24, AC25, AC27, AC30.
+1. **Walking skeleton and gates:** server, config, correlation IDs, problem details, security headers, migrations, the app role, CI, hooks, `CLAUDE.md`, and the home page. AC1, AC23, AC24, AC25, AC27, AC30. After its first full CI run, branch protection goes on `main` (ADR 0010).
 2. **Browse and search:** AC2–AC6, with the Playwright, axe, no-JavaScript and 320-pixel harness (AC28, AC29 from here on).
 3. **Accounts:** AC7–AC10, AC12, AC17, AC26. Whole-codebase review after this slice.
 4. **Contribute:** AC13–AC16, AC22.

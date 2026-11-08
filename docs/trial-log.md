@@ -12,6 +12,36 @@ How context is measured: the playbook's context-budget hook reads the transcript
 - Sessions: 1. Peak context: hook not yet installed; about 160k reported by the harness at the end, of which about 80k is the floor. Wall clock: about 1.5 hours including Ryan's review.
 - Defects found: 4 by the human design review (login CSRF uncovered, session rotation missing from AC8, no maximum password length, rehearsal HTTPS versus AC27). None by tooling: nothing to test yet.
 
+### Slice 1: walking skeleton and gates (PR #1)
+
+- Criteria delivered: AC1, AC23, AC24, AC27, AC30; AC25 without the goroutine clause (no goroutine exists yet; slice 3 adds the first).
+- Sessions: 1, the same session as the design, continued at Ryan's request past the budget. Peak context: the hook was not installed in this session; the harness showed roughly 300k tokens by the end, including the 80k floor. Wall clock: about 3 hours from the first line of code to the green full CI run, including two waits on Ryan (branch protection, the throwaway branch).
+- Defects by layer:
+  - tests (test-first): 2. A catalogue query in the AC30 test resolved `has_table_privilege` against the wrong schema (failed with "relation collations does not exist"); the catch-all `/` route turned `POST /` into a 404 instead of a 405.
+  - race detector: 1. The test's log buffer was read without its lock; an intermittent failure under `-race` that the plain run never showed.
+  - real database (rule 16): 1. `DROP DATABASE … WITH (FORCE)` failed intermittently with "permission denied to terminate process" because the migrate role could not end the app role's connections; fixed in `scripts/db-init.sql`, lesson in `CLAUDE.md`.
+  - hooks: 0 defects in the code; both hooks were proven by planted errors (vet error → after-edit exit 2; unformatted file and failing test → before-stop block; `stop_hook_active` → no loop).
+  - fresh-context review (subagent, diff + design + `CLAUDE.md`, about 140k tokens): 10 findings, 4 must-fix, all verified and all fixed test-first.
+    1. MUST `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` stored nothing (a per-schema default ACL starts empty), so a later SECURITY DEFINER function would have been executable by the app role; the AC30 clause was vacuous. Now global; the test creates such a function and checks.
+    2. MUST The CI grep for `context.Background()` caught `internal/testdb`, so the checks job was red on the branch as committed; the rule text and the check now agree.
+    3. MUST `go test | tee` without pipefail: the Tests job would pass on a failing test (CI confirmed it on #2's first run). `shell: bash` plus a `FAIL` grep.
+    4. MUST Static files answered a missing file with the file server's plain-text 404 and `/static/` with a directory listing; now problems, with tests.
+    5. SHOULD `REVOKE ALL ON SCHEMA public FROM PUBLIC` by a non-owner is only a warning; the first migration now refuses a database the migrate role doesn't own, with a test.
+    6. SHOULD HSTS in production was never exercised; AC24's test now runs a production-configured handler.
+    7. SHOULD The 405 problem had no `detail`; added, and every problem is now checked for type, title, detail and correlation ID.
+    8. SHOULD `main` was untested for AC27; `run()` now has a test.
+    9. SHOULD AC1's test didn't assert name order; it does.
+    10. SHOULD `recover` swallowed `http.ErrAbortHandler`; govulncheck was `@latest` while everything else was pinned. Both fixed.
+  - found while fixing a review finding: 1. The route wrapper called the matched handler directly rather than through the mux, so wildcard path values were never bound; invisible until the static route used `{file...}`.
+  - CI, first runs: 2 defects seen, both already named by the review before CI confirmed them: the `testdb` grep (run 2 on PR #1, checks job red) and the Tests job passing a planted failing test (run 3, on #2).
+  - CI, process: 1. The planted token on the throwaway branch failed the secrets scan on PR #1 too (checkout fetches every branch and gitleaks scans every ref); the branch could not be deleted from this session, so Ryan deleted it.
+  - own proof invalidated: 1. The first local gitleaks "proof" grepped for "leaks found", which also matches "no leaks found", and the planted token was 36 of one letter, under gitleaks' entropy threshold. Re-proved with a random token, locally and in CI.
+  - own process: 1. This slice 1 entry was first written while the reviewer ran, then swept into the throwaway branch's commit by `git add -A`, so it was missing from PR #1 until Ryan noticed; two later edits to it silently matched nothing. Restored here.
+- Gates broken on purpose, by layer (each seen to fail once):
+  - locally: gofmt, go vet, staticcheck, go test, TestAC30 (grant commented out), the two rule greps, the "Tests ran" check, zizmor (unpinned action), gitleaks (random token), all three hooks.
+  - in CI (throwaway PR #2, second run): gofmt failed the checks job; the planted test failed the Tests job; the random token failed the security job. Not provable locally: govulncheck (database unreachable through the proxy; green in CI).
+- Branch protection on `main` after the first full run (ADR 0010): ruleset active, no bypass, pull request with code owner review, the three jobs required by name; recorded in a comment on PR #1.
+
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)
 - Criteria delivered: AC…

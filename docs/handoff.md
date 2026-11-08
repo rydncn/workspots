@@ -5,7 +5,7 @@
 ## Where the work is
 
 - Slice 1 is built, reviewed and green in CI on PR #1 (`slice-1-walking-skeleton`), ready for Ryan to review and merge; it is a one-way door (migrations, agent configuration, the error and header contract). The fresh-context review's ten findings are fixed. Branch protection is on `main` (ADR 0010); what the API showed is recorded in a comment on PR #1.
-- `docs/trial-log.md` has slice 0 and slice 1 figures; `docs/playbook-feedback.md` has 19 items so far.
+- `docs/trial-log.md` has slice 0 and slice 1 (criteria, context, wall clock, defects by layer, gate breaks); `docs/playbook-feedback.md` has 19 items so far. Keep both current per slice; the slice 1 entry was nearly lost to a `git add -A` on a throwaway branch, so commit the log before branching for anything disposable.
 - `scripts/dev-db.sh` works: run it first in every session. `go test ./...` then passes with no further setup.
 
 ## Next: slice 2, browse and search

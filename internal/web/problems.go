@@ -21,7 +21,7 @@ type Problem struct {
 
 var (
 	notFound         = Problem{Type: "/problems/not-found", Title: "Not found", Status: 404, Detail: "There is nothing at this address."}
-	methodNotAllowed = Problem{Type: "/problems/method-not-allowed", Title: "Method not allowed", Status: 405}
+	methodNotAllowed = Problem{Type: "/problems/method-not-allowed", Title: "Method not allowed", Status: 405, Detail: "This address does not accept that method; see the Allow header."}
 	internal         = Problem{Type: "/problems/internal", Title: "Something went wrong", Status: 500,
 		Detail: "The problem has been logged. Quote the correlation ID if you report it."}
 )

@@ -26,4 +26,4 @@ Adapted from the playbook's `templates/rules/observability.md`. This project log
 ## How these are checked
 
 - `TestAC25` makes one request with a `traceparent`, then asserts every log line, including the query's and (from slice 3) the mail goroutine's, carries that ID.
-- CI greps application code for `fmt.Print`, `log.Print` and `context.Background()` outside `main` and tests.
+- CI greps application code for `fmt.Print`, `log.Print` and `context.Background()` outside `main`, tests and `internal/testdb`.

@@ -1,5 +1,14 @@
 -- Schema ownership and the app role's grants (ADR 0004), then the spots table.
--- Runs as workspots_migrate, which owns everything it creates.
+-- Runs as workspots_migrate, which owns everything it creates and must own
+-- the database too: REVOKE on the public schema by anyone else is only a
+-- warning in Postgres, which would leave PUBLIC with USAGE and nothing failing.
+DO $$
+BEGIN
+  IF (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()) <> current_user THEN
+    RAISE EXCEPTION 'migrations must run as the role that owns the database (%), not %',
+      (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()), current_user;
+  END IF;
+END $$;
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO workspots_app;
@@ -10,8 +19,9 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO workspots_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE ON SEQUENCES TO workspots_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+-- Global, not IN SCHEMA: a per-schema default ACL starts empty, so revoking
+-- from it stores nothing and PUBLIC would keep execute on every new function.
+ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 CREATE TABLE spots (
   id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

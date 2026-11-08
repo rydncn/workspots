@@ -16,4 +16,4 @@ Then open <http://127.0.0.1:8080/>. `go test ./...` runs every test against the 
 
 ## Configuration
 
-All from the environment (`internal/config`): `WORKSPOTS_ENV` (`development` or `production`), `ADDR`, `DATABASE_URL`, `BASE_URL`, `TRUSTED_PROXY`, `LOG_LEVEL`. In production the process refuses to start with a missing or development value. An operator creates the two database roles (`scripts/db-init.sql` shows them) with real passwords and runs `workspots migrate` as the migrate role.
+All from the environment (`internal/config`): `WORKSPOTS_ENV` (`development` or `production`), `ADDR`, `DATABASE_URL`, `BASE_URL`, `TRUSTED_PROXY`, `LOG_LEVEL`. In production the process refuses to start with a missing or development value. An operator creates the two database roles (`scripts/db-init.sql` shows them) with real passwords, creates the database **owned by `workspots_migrate`**, and runs `workspots migrate` as that role; the first migration refuses any other owner.

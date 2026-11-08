@@ -126,6 +126,9 @@ func TestAC1HomeListsApprovedSpotsOnly(t *testing.T) {
 	if strings.Contains(body, "Pending Library") {
 		t.Error("home page shows a pending spot")
 	}
+	if strings.Index(body, "Approved Café") > strings.Index(body, "Second Approved") {
+		t.Error("spots are not listed by name")
+	}
 }
 
 type problem struct {
@@ -141,6 +144,9 @@ func readProblem(t *testing.T, res *http.Response, body string) problem {
 	var p problem
 	if err := json.Unmarshal([]byte(body), &p); err != nil {
 		t.Fatalf("not JSON: %v: %q", err, body)
+	}
+	if p.Detail == "" || p.Title == "" || p.CorrelationID == "" {
+		t.Errorf("problem lacks a required field: %+v", p)
 	}
 	return p
 }
@@ -167,6 +173,18 @@ func TestAC23EveryErrorIsAProblem(t *testing.T) {
 		}
 		if !strings.Contains(body, "<title>") || !strings.Contains(body, res.Header.Get("X-Correlation-Id")) || !strings.Contains(body, "404") {
 			t.Errorf("HTML problem page lacks title, status or correlation id: %q", body)
+		}
+	})
+	t.Run("missing static file and directory listing", func(t *testing.T) {
+		for _, path := range []string{"/static/missing.css", "/static/", "/static"} {
+			res, body := get(t, a, path, "Accept", "application/json")
+			p := readProblem(t, res, body)
+			if res.StatusCode != 404 || p.Type != "/problems/not-found" {
+				t.Errorf("%s: got %d %+v", path, res.StatusCode, p)
+			}
+		}
+		if res, _ := get(t, a, "/static/style.css"); res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") {
+			t.Errorf("stylesheet: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
 		}
 	})
 	t.Run("wrong method", func(t *testing.T) {
@@ -214,6 +232,17 @@ func TestAC24SecurityHeaders(t *testing.T) {
 		if h.Get("Strict-Transport-Security") != "" {
 			t.Errorf("%s: HSTS set in development", path)
 		}
+	}
+	// Production: the same handler with a production config (no database needed for a 404).
+	prod := httptest.NewServer(web.New(web.Deps{Config: config.Config{Env: "production"}, Logger: obs.NewLogger(io.Discard, slog.LevelInfo)}))
+	defer prod.Close()
+	res, err := prod.Client().Get(prod.URL + "/no/such/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if !strings.HasPrefix(res.Header.Get("Strict-Transport-Security"), "max-age=") {
+		t.Errorf("production response lacks HSTS: %v", res.Header)
 	}
 }
 

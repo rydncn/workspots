@@ -2,11 +2,14 @@ package migrate_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/rydncn/workspots/internal/migrate"
 	"github.com/rydncn/workspots/internal/testdb"
+	"github.com/rydncn/workspots/migrations"
 )
 
 // AC30: the app role owns nothing and has only what its queries need, checked
@@ -58,6 +61,13 @@ func TestAC30AppRolePrivileges(t *testing.T) {
 	count("security definer functions workspots_app may execute",
 		`SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 		 WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('workspots_app', p.oid, 'EXECUTE')`, 0)
+	// A SECURITY DEFINER function created later by the migrate role must not be
+	// executable by the app role either (rule 2: PUBLIC gets execute by default).
+	if _, err := conn.Exec(ctx, `CREATE FUNCTION probe_secdef() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'`); err != nil {
+		t.Fatal(err)
+	}
+	count("execute on a new security definer function for workspots_app",
+		`SELECT count(*) FROM (SELECT 1 WHERE has_function_privilege('workspots_app', 'probe_secdef()', 'EXECUTE')) s`, 0)
 	// At least one application table exists, so the checks above checked something (rule 9).
 	count("application tables", `SELECT count(*) FROM information_schema.tables
 		 WHERE table_schema = 'public' AND table_name <> 'schema_migrations'`, 1)
@@ -80,5 +90,34 @@ func TestApplyIsIdempotentAndOrdered(t *testing.T) {
 	}
 	if names[0] != "0001_init.sql" {
 		t.Errorf("first migration recorded was %q", names[0])
+	}
+}
+
+// Migrations refuse to run unless the migrate role owns the database: REVOKE
+// on the public schema by a non-owner is only a warning in Postgres.
+func TestMigrationsRefuseADatabaseOwnedByAnotherRole(t *testing.T) {
+	t.Parallel()
+	adminURL, _ := testdb.New(t)
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	name := "test_owned_" + strings.TrimPrefix(conn.Config().Database, "test_")
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+name+" OWNER workspots_app"); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)") //nolint:errcheck
+	cfg := conn.Config().Copy()
+	cfg.Database = name
+	other, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close(ctx)
+	_, err = migrate.Apply(ctx, other, migrations.FS)
+	if err == nil || !strings.Contains(err.Error(), "own") {
+		t.Fatalf("expected an error about database ownership, got %v", err)
 	}
 }

@@ -84,6 +84,9 @@ func (s *server) recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if v := recover(); v != nil {
+				if v == http.ErrAbortHandler {
+					panic(v) // the server's own way of dropping a connection
+				}
 				s.log.ErrorContext(r.Context(), "panic", "error", slog.AnyValue(v))
 				s.writeProblem(w, r, internal)
 			}
@@ -98,7 +101,7 @@ func (s *server) routeErrors(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h, pattern := mux.Handler(r)
 		if pattern != "" {
-			h.ServeHTTP(w, r)
+			mux.ServeHTTP(w, r) // through the mux, so path values are bound
 			return
 		}
 		rec := httptest.NewRecorder()

@@ -21,6 +21,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# bash with -o pipefail, so `cmd | tee log` fails when cmd does.
+defaults:
+  run:
+    shell: bash
+
 env:
   DEV_PG: postgres://postgres:postgres@localhost:5432/postgres
 
@@ -63,7 +68,7 @@ jobs:
         run: |
           files=$(find internal -name '*.go' -not -name '*_test.go' | wc -l)
           test "$files" -gt 0 || { echo "no files scanned"; exit 1; }
-          if grep -rnE 'fmt\.Print|log\.Print|context\.Background\(\)' internal --include='*.go' --exclude='*_test.go'; then
+          if grep -rnE 'fmt\.Print|log\.Print|context\.Background\(\)' internal --include='*.go' --exclude='*_test.go' --exclude-dir=testdb; then
             echo "use slog with the request context (.claude/rules/observability.md)"; exit 1
           fi
 
@@ -106,6 +111,7 @@ jobs:
       - name: Tests ran
         run: |
           grep -qE '^ok\s' test.log || { echo "no package reported ok"; exit 1; }
+          ! grep -qE '^(FAIL|--- FAIL)' test.log || { echo "a test failed"; exit 1; }
           ! grep -q 'no test files' <(grep -E '^\?\s' test.log | grep -E 'internal/(web|migrate|config)') || { echo "a package has no tests"; exit 1; }
 
   security:
@@ -125,7 +131,7 @@ jobs:
       # Go's dependency audit: reports only vulnerable code the program calls.
       - name: govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
 
       # gitleaks from its release, checked against a pinned checksum. The same

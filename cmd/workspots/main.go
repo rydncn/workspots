@@ -1,0 +1,96 @@
+// Command workspots serves the site (the default) or applies migrations.
+//
+//	workspots            # serve on $ADDR
+//	workspots migrate    # apply migrations/ using $MIGRATE_DATABASE_URL, then exit
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/rydncn/workspots/internal/config"
+	"github.com/rydncn/workspots/internal/migrate"
+	"github.com/rydncn/workspots/internal/obs"
+	"github.com/rydncn/workspots/internal/web"
+	"github.com/rydncn/workspots/migrations"
+)
+
+func main() {
+	if err := run(os.Args[1:], os.Getenv); err != nil {
+		fmt.Fprintln(os.Stderr, "workspots:", err)
+		os.Exit(1)
+	}
+}
+
+func run(args []string, getenv func(string) string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	level := slog.LevelInfo
+	if getenv("LOG_LEVEL") == "debug" {
+		level = slog.LevelDebug
+	}
+	log := obs.NewLogger(os.Stdout, level)
+
+	if len(args) > 0 && args[0] == "migrate" {
+		url := getenv("MIGRATE_DATABASE_URL")
+		if url == "" {
+			return errors.New("MIGRATE_DATABASE_URL is not set")
+		}
+		conn, err := pgx.Connect(ctx, url)
+		if err != nil {
+			return fmt.Errorf("connect for migrations: %w", err)
+		}
+		defer conn.Close(ctx)
+		applied, err := migrate.Apply(ctx, conn, migrations.FS)
+		for _, name := range applied {
+			log.Info("migration applied", "name", name)
+		}
+		return err
+	}
+
+	cfg, err := config.Load(getenv)
+	if err != nil {
+		return err
+	}
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return errors.New("DATABASE_URL could not be parsed")
+	}
+	poolCfg.ConnConfig.Tracer = obs.QueryTracer{Logger: log}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return fmt.Errorf("database pool: %w", err)
+	}
+	defer pool.Close()
+
+	srv := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           web.New(web.Deps{DB: pool, Config: cfg, Logger: log}),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.ListenAndServe() }()
+	log.Info("listening", "addr", cfg.Addr, "env", cfg.Env)
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdown)
+	}
+}

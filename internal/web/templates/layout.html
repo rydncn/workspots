@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{block "title" .}}Workspots{{end}}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <nav aria-label="Main">
+    <a href="/" class="brand">Workspots</a>
+  </nav>
+</header>
+<main id="main" tabindex="-1">
+{{block "main" .}}{{end}}
+</main>
+<footer><p>Good places to work remotely.</p></footer>
+</body>
+</html>

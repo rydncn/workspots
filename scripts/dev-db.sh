@@ -7,8 +7,9 @@
 #
 # Two roles, as in production: workspots_migrate owns the schema and runs the
 # migrations; workspots_app owns nothing and gets only the grants its queries
-# need (ADR 0004). The passwords below are development values; the app refuses
-# to start in production mode with them (docs/design.md).
+# need (ADR 0004). scripts/db-init.sql holds the roles; its passwords are
+# development values, and the app refuses to start in production mode with
+# them (docs/design.md).
 set -eu
 
 CLUSTER="${PG_CLUSTER:-16 main}"
@@ -23,22 +24,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 1
 done
 
-sql() { as_postgres "psql -v ON_ERROR_STOP=1 -qAt -c \"$1\""; }
-ensure_role() {
-  [ "$(sql "SELECT 1 FROM pg_roles WHERE rolname = '$1'")" = 1 ] ||
-    sql "CREATE ROLE $1 LOGIN PASSWORD '$2' $3"
-}
-ensure_db() {
-  [ "$(sql "SELECT 1 FROM pg_database WHERE datname = '$1'")" = 1 ] ||
-    sql "CREATE DATABASE $1 OWNER workspots_migrate"
-}
-
-# CREATEDB: the acceptance tests create a database per test from a template
-# (ADR 0005). Development only; the production migrate role has no such right.
-ensure_role workspots_migrate dev-migrate CREATEDB
-ensure_role workspots_app dev-app ""
-ensure_db workspots_dev
-ensure_db workspots_test
+as_postgres "psql -v ON_ERROR_STOP=1 -q -f $(pwd)/scripts/db-init.sql"
 
 cat <<URLS
 Postgres is up.

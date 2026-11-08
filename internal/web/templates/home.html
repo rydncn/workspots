@@ -1,0 +1,16 @@
+{{define "title"}}Workspots: find a place to work{{end}}
+{{define "main"}}
+<h1>Find a place to work</h1>
+{{if .Spots}}
+<ul class="spots">
+{{range .Spots}}
+  <li>
+    <h2>{{.Name}}</h2>
+    <p>{{.Kind}} in {{.Area}}</p>
+  </li>
+{{end}}
+</ul>
+{{else}}
+<p>No spots yet.</p>
+{{end}}
+{{end}}

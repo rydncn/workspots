@@ -1,0 +1,17 @@
+# Copy to .github/CODEOWNERS and replace @rydncn with the people who review
+# agent configuration. GitHub then asks them to review any pull request that
+# touches these files. Required review needs branch protection; without it
+# (GitHub Free with a private repository), this still requests the review,
+# and the CI step "Agent configuration changes" flags the pull request.
+#
+# Agent configuration is code (rule 18 in the ai-playbook): hooks run on
+# every session, settings change what the agent may do without asking, MCP
+# servers reach other systems, and CLAUDE.md and the rules are instructions.
+
+/.claude/                @rydncn
+/.mcp.json               @rydncn
+CLAUDE.md                @rydncn
+AGENTS.md                @rydncn
+/.github/workflows/      @rydncn
+/.github/CODEOWNERS      @rydncn
+/.devcontainer/          @rydncn

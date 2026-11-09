@@ -1,0 +1,11 @@
+{{define "title"}}{{.Status}} {{.Title}}: Workspots{{end}}
+{{define "main"}}
+<h1>{{.Title}}</h1>
+<p>{{.Detail}}</p>
+<dl class="problem">
+  <dt>Status</dt><dd>{{.Status}}</dd>
+  <dt>Address</dt><dd>{{.Instance}}</dd>
+  <dt>Correlation ID</dt><dd><code>{{.CorrelationID}}</code></dd>
+</dl>
+<p><a href="/">Back to the home page</a></p>
+{{end}}

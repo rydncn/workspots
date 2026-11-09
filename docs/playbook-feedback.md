@@ -15,7 +15,22 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 ## As the work goes
 
-(Added per slice.)
+9. **The design review by a person found four gaps the template's prompts didn't ask about:** login CSRF (tokens "tied to the session" when there is no session yet), session rotation at sign-in (in `api.md` but not surfaced as a criterion), a maximum password length so argon2id can't be used for denial of service, and how a local release rehearsal provides HTTPS when production mode insists on it. `api.md` could carry the first three as one-liners; `GATES.md`'s release row could mention the TLS proxy.
+10. **A handoff file was needed after all.** The design session passed the context budget before slice 1 started (the harness floor is about 80k; see item 3), so `docs/handoff.md` was written to carry "design approved, start slice 1" into a fresh session. The task asked for a reason: the budget, not the size of the work.
+
+11. **Hooks: the stack-neutral pair copied unchanged; the npm pair rewritten.** `context-budget.mjs` and `check-plugins.mjs` are stack-neutral. `after-edit.mjs` and `before-stop.mjs` are built around `package.json` scripts, Prettier and ESLint; the Go versions here are forty lines each (gofmt and `go vet` on the package of the edited file; gofmt, vet and `go test` before stopping). The `CHECKS` list idea carried over as is. The hooks' own test file (`hooks.test.mjs`) tests the npm behaviour, so it was not copied; the Go hooks were proven by planting a vet error and a failing test and watching each hook send the agent back.
+12. **`settings.json`'s allow and ask lists are npm and Supabase shaped.** Trimmed to `go`, `gofmt`, `staticcheck`, `govulncheck`, the dev-db script, and `docker push`; the git and `gh` ask rules carry over unchanged.
+13. **The CI template's job shape fits Go well.** Jobs, draft gating, concurrency, gitleaks and zizmor installs, and the agent-configuration step copied unchanged. Replaced: setup-node with setup-go, `npm run` steps with gofmt/vet/staticcheck, the npm audit with govulncheck, plus a Postgres service for the tests and an explicit "migrations on an empty database, twice" step. The lockfile and signature steps wait for `e2e/` in slice 2 rather than running on nothing (rule 9).
+14. **Two gates could not be proven locally:** govulncheck (the vulnerability database is not reachable through this environment's proxy) and the whole-workflow run itself. Both are proven by CI's first run and a deliberately broken pull request.
+15. **Rule 16's isolation advice is npm shaped** (`--randomize`, `sequence.shuffle`). Go's equivalents are `-shuffle=on`, `-count=1` and `t.Parallel()`; worth a line in the rule.
+
+16. **The gitleaks proof advice needs one more word: entropy.** `new-project.md` and `GATES.md` say to plant "a `ghp_` token of the right length". A token of the right length made of one repeated character passes gitleaks' entropy check silently, and so did my first proof. Say "random characters", or give a command that generates one.
+17. **The fresh-context review earned its place on slice 1 alone.** It found a real privilege gap (a default-privilege statement that stored nothing), a CI job that could pass on a failing test, and two criteria the tests claimed but didn't check, all before CI ran. The cost was one subagent run of about 140k tokens.
+18. **Rule 9's "fail on nothing" needs a Go note on pipes.** `go test ./... | tee log` in a GitHub Actions `run:` step exits 0 on failure unless `shell: bash` (which adds `-o pipefail`) is set. The CI template's steps don't pipe, so it never meets this; a Go or shell adaptation does on its first `tee`.
+
+19. **A planted secret on any branch turns every pull request's scan red.** `actions/checkout` with `fetch-depth: 0` fetches every branch, and `gitleaks git` scans every ref it finds, so the token planted on the throwaway branch failed the real slice's security job until that branch was deleted. The playbook's advice to "plant a token" should add: on a branch you can delete straight away, or in a scratch clone, and expect other open pull requests to go red meanwhile. (The cloud session's permission classifier also refused `git push --delete`, so the deletion needed a person.)
+
+20. **The CODEOWNERS template's "make code owner review required" assumes a second person.** For a single developer whose agent commits under their own account, every pull request is their own, GitHub won't let them approve it, and the rule blocks every merge; it did here until it was switched off. The template and `new-project.md` step 3 should say: require it only when someone other than the author can review, otherwise rely on the PR's door section and the CI flag.
 
 ## Review layers
 

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Git pre-push hook: the fast checks before anything leaves the machine, for
+# tools and people outside Claude Code. Install with
+#   git config core.hooksPath .claude/hooks
+# CI runs the same checks; `git push --no-verify` skips this, so CI is the gate.
+set -eu
+[ -f go.mod ] || exit 0
+echo "pre-push: gofmt, go vet, go test" >&2
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then echo "pre-push: unformatted: $unformatted" >&2; exit 1; fi
+go vet ./...
+go test ./...

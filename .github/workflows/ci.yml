@@ -1,0 +1,188 @@
+name: CI
+
+# Adapted from the ai-playbook's templates/ci.yml for Go, Postgres and the npm
+# in e2e/. Agents open pull requests as drafts: the quick checks run on every
+# push; the test, end-to-end and release jobs wait until the pull request is
+# ready for review. Branch protection requires every job by name (ADR 0010).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run. Runs on main are never
+# cancelled, so a broken merge can't hide behind the next one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# bash with -o pipefail, so `cmd | tee log` fails when cmd does.
+defaults:
+  run:
+    shell: bash
+
+env:
+  DEV_PG: postgres://postgres:postgres@localhost:5432/postgres
+
+jobs:
+  checks:
+    name: Format, vet and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "unformatted: $unformatted"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+          staticcheck ./...
+      - name: go build
+        run: go build ./...
+      # Rule checks from CLAUDE.md that a grep can see. Each fails if it finds
+      # nothing to scan, so a renamed folder can't make it pass on nothing.
+      - name: HTTP stays in web
+        run: |
+          files=$(find internal -name '*.go' -not -path 'internal/web/*' | wc -l)
+          test "$files" -gt 0 || { echo "no files scanned"; exit 1; }
+          if grep -rl '"net/http"' internal --include='*.go' --exclude-dir=web; then
+            echo "net/http imported outside internal/web"; exit 1
+          fi
+      - name: No unstructured logging or detached contexts
+        run: |
+          files=$(find internal -name '*.go' -not -name '*_test.go' | wc -l)
+          test "$files" -gt 0 || { echo "no files scanned"; exit 1; }
+          if grep -rnE 'fmt\.Print|log\.Print|context\.Background\(\)' internal --include='*.go' --exclude='*_test.go' --exclude-dir=testdb; then
+            echo "use slog with the request context (.claude/rules/observability.md)"; exit 1
+          fi
+
+  tests:
+    name: Tests
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Create roles and databases
+        run: psql "$DEV_PG" -v ON_ERROR_STOP=1 -f scripts/db-init.sql
+      # Rule 2: every migration on an empty database, twice (the second run must
+      # apply nothing). The privilege test then reads the catalogue.
+      - name: Migrations on an empty database
+        env:
+          MIGRATE_DATABASE_URL: postgres://workspots_migrate:dev-migrate@localhost:5432/workspots_dev
+        run: |
+          go run ./cmd/workspots migrate | tee first.log
+          grep -q '"migration applied"' first.log || { echo "no migration applied"; exit 1; }
+          go run ./cmd/workspots migrate | tee second.log
+          ! grep -q '"migration applied"' second.log || { echo "a migration applied twice"; exit 1; }
+      - name: Tests
+        run: go test -race -count=1 -shuffle=on ./... 2>&1 | tee test.log
+      - name: Tests ran
+        run: |
+          grep -qE '^ok\s' test.log || { echo "no package reported ok"; exit 1; }
+          ! grep -qE '^(FAIL|--- FAIL)' test.log || { echo "a test failed"; exit 1; }
+          ! grep -q 'no test files' <(grep -E '^\?\s' test.log | grep -E 'internal/(web|migrate|config)') || { echo "a package has no tests"; exit 1; }
+
+  security:
+    name: Dependencies and secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # full history, so secrets in earlier commits are found too
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      # Go's dependency audit: reports only vulnerable code the program calls.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          govulncheck ./...
+
+      # gitleaks from its release, checked against a pinned checksum. The same
+      # command runs locally: gitleaks git --redact --verbose
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLo "$RUNNER_TEMP/$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Secrets scan
+        run: gitleaks git --redact --verbose
+
+      # zizmor lints the workflows: script injection, risky triggers, broad
+      # permissions, credentials on disk, and pinned SHAs that aren't the
+      # version their comment claims (online, with the job's token).
+      - name: Install zizmor
+        env:
+          ZIZMOR_VERSION: 1.32.0
+          ZIZMOR_SHA256: bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b
+        run: |
+          archive="zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSLo "$RUNNER_TEMP/$archive" "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/$archive"
+          echo "$ZIZMOR_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" zizmor
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Workflow security lint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --format=github .github/workflows
+
+      # Agent configuration is code (rule 18): flag a pull request that touches
+      # it for a human who reads what it runs and allows. Advisory; never fails.
+      - name: Agent configuration changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          pattern='(^|/)(CLAUDE|AGENTS)\.md$|^\.claude/|^\.mcp\.json$|^\.github/workflows/|^\.devcontainer/'
+          changed=$(git diff --name-only "$BASE_SHA" HEAD | grep -E "$pattern" || true)
+          if [ -n "$changed" ]; then
+            {
+              echo "### Agent configuration changed: a human reviews it as code"
+              echo
+              echo "$changed" | sed 's/^/- /'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "$changed" | while read -r file; do
+              echo "::warning file=$file::Agent configuration changed. Review what it runs and allows before merging (rule 18)."
+            done
+          fi

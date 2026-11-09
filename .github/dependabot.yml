@@ -1,0 +1,27 @@
+# Weekly, grouped dependency updates (from the playbook's template). Major
+# versions are left for a person to plan. New releases wait out a cooldown so
+# a compromised version is usually caught and pulled before it reaches us.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      go:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]

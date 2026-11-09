@@ -8,8 +8,10 @@ import (
 func TestLimiterForgetsKeysWhoseWindowHasPassed(t *testing.T) {
 	t.Parallel()
 	l := newLimiter(10 * time.Millisecond)
-	if l.take("signin:addr:someone@example.test", 2) != 0 || l.take("signin:addr:someone@example.test", 2) != 0 {
-		t.Fatal("the first two attempts are within a limit of two")
+	for i := 0; i < 2; i++ {
+		if l.take("signin:addr:someone@example.test", 2) != 0 {
+			t.Fatalf("attempt %d is within a limit of two", i+1)
+		}
 	}
 	if l.take("signin:addr:someone@example.test", 2) == 0 || l.size() != 1 {
 		t.Fatal("the third attempt should be refused")

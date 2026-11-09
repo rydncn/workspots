@@ -101,6 +101,14 @@ How context is measured: the playbook's context-budget hook reads the transcript
     11. Retention table versus code: expired sessions are now also deleted at sign-out and indexed by expiry, and the table says when deletion happens and that rate-limit keys are pruned on use.
     12. Copy: the check-email page told existing account holders to use "the password you chose"; the CODEOWNERS header still said "copy to". Both fixed.
   - Per-slice reviews had passed all twelve; four only show when the slices are read together (static caching versus the new cookie, the document-versus-code Origin rule, the documented health route, the e2e harness versus the new limits).
+  - outside review by Ryan (after both automated reviews): 3 defects missed by the tests, the fresh-context review and the whole-codebase review, plus 2 design points. All fixed test-first.
+    1. MISSED Open redirect: `safeNext` allowed a tab, and browsers strip tabs from URLs, so `/sign-in?next=/%09/evil.example` sent the visitor off-site after sign-in (proven with a Go server and Chromium). Now parsed: no scheme, host or user, a single leading slash, and every control character and backslash refused; twelve-case unit test plus a real sign-in with the tab.
+    2. MISSED Rate-limit race: the limit was checked before `Authenticate` and counted after it failed, so concurrent attempts all passed. Now one atomic check-and-count before the hash, refunded on success, for sign-in, sign-up and password change; a test fires twenty wrong passwords at once and sees exactly five checked and fifteen refused.
+    3. MISSED Concurrent argon2id was uncapped (19 MiB each). Hashing now runs behind a semaphore of `runtime.NumCPU()` slots; a request waits for a slot until its context ends, recorded in ADR 0012; a unit test shows one slot serialises eight hashes and a cancelled context does not wait.
+    4. Spot visibility was decided in two queries (`status = 'approved'` in both `Search` and `Get`), the pattern that diverges when slices 4 and 5 add the author and moderator exceptions; now one `visible` constant that both queries use.
+    5. Search had no limit; now fifty a page with next and previous links that keep the search, tested with fifty-one spots.
+  - Why the automated layers missed the first three: both reviewers read `safeNext` as a path check and did not think about what browsers do to a URL before following it; both saw the limiter and reasoned about one request at a time; neither asked what a burst of sign-ins costs in memory. All three are concurrency or browser-behaviour questions, which neither brief asked for by name.
+  - own process: 1. A staticcheck failure in a chained shell command stopped the documentation edits but not the commit that followed, so one commit went out with a lint failure and without its records; fixed in the next.
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

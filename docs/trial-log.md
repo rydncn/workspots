@@ -42,7 +42,7 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - in CI (throwaway PR #2, second run): gofmt failed the checks job; the planted test failed the Tests job; the random token failed the security job. Not provable locally: govulncheck (database unreachable through the proxy; green in CI).
 - Branch protection on `main` after the first full run (ADR 0010): ruleset active, no bypass, pull request with code owner review, the three jobs required by name; recorded in a comment on PR #1.
 
-### Slice 2: browse and search (PR #3)
+### Slice 2: browse and search (PR #4)
 
 - Criteria delivered: AC2, AC3, AC4, AC5, AC6; the AC28 and AC29 harness (axe, 320 pixels, keyboard, JavaScript off) over every page and state in this slice.
 - Sessions: 1, still the first session, continued at Ryan's request; the harness showed roughly 380k tokens by the end of the slice. Wall clock: about 1.5 hours to the draft PR.

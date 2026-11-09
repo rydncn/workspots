@@ -4,7 +4,7 @@
 
 ## Where the work is
 
-- Slice 1 merged (PR #1). Slice 2 (browse and search, AC2 to AC6, the AC28/AC29 harness) is on PR #3 from `slice-2-browse-and-search`: Go acceptance tests, `e2e/` with Playwright and axe, the e2e CI job and the npm supply-chain steps. See the PR description for what was observed and broken.
+- Slice 1 merged (PR #1). Slice 2 (browse and search, AC2 to AC6, the AC28/AC29 harness) is on PR #4 from `slice-2-browse-and-search`: Go acceptance tests, `e2e/` with Playwright and axe, the e2e CI job and the npm supply-chain steps. See the PR description for what was observed and broken.
 - `docs/trial-log.md` has slices 0 to 2; `docs/playbook-feedback.md` has 22 items. Commit the log before planting breaks or branching for anything disposable.
 - `scripts/dev-db.sh` first in every session; then `go test ./...` and `cd e2e && npm ci && npm test` work with no further setup.
 

@@ -67,6 +67,17 @@ How context is measured: the playbook's context-budget hook reads the transcript
     10. SHOULD Out-of-range filter values were applied but echoed as "Any"; the form now shows the clamped value, with a test. Leftover template text in `.npmrc` removed.
 - Gates added and broken once: axe (image without alt → `image-alt`), the 320-pixel horizontal-scroll check (unbroken word), the end-to-end assertions (locator failure seen). lockfile-lint ran clean locally. Not provable locally: `npm audit signatures` (the registry's attestation download is blocked by the proxy); proven in CI.
 
+### Slice 3: accounts (PR #5)
+
+- Criteria delivered: AC7, AC8, AC9, AC10, AC12, AC17, AC26, and the goroutine clause of AC25. Whole-codebase review follows this slice.
+- Sessions: 1, still the first session, continued at Ryan's request; the harness showed roughly 470k tokens by the end of the slice. Wall clock: about 2 hours to the draft PR.
+- Defects by layer:
+  - tests (test-first): 4. A Go template can't range over an untyped nil, so every form page was a 500 until `Errors` defaulted to a typed nil slice; the form-errors partial wasn't in the parse list; the CSRF middleware ran before route matching and turned a `POST /` into a 403 instead of the 405 AC23 requires; and the test browsers all shared one cookie jar (`httptest.Server.Client()` returns one client), which made two tests pass for the wrong reason and two fail mysteriously until each browser got its own client.
+  - tests (unit): 0 beyond the above; the argon2id round trip and the length rules passed first time.
+  - end-to-end: 2. The nav's new links changed the keyboard tab order the browse journey asserted; a "Sign up" locator matched the nav and the page body.
+  - gate breaks: CSRF comparison disabled → AC17's token-based refusals fail (the first attempt at this break didn't compile, so proved nothing; redone); sign-in limit raised to 500 → AC12's "sixth attempt" fails; other sessions no longer ended → AC10 fails.
+  - hooks: 0. CI: (first run pending). Fresh-context review: (pending).
+
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)
 - Criteria delivered: AC…

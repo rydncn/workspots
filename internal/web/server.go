@@ -9,10 +9,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rydncn/workspots/internal/config"
+	"github.com/rydncn/workspots/internal/mail"
 	"github.com/rydncn/workspots/internal/spots"
 )
 
@@ -29,25 +31,37 @@ type Deps struct {
 	DB     *pgxpool.Pool
 	Config config.Config
 	Logger *slog.Logger
+	Mail   mail.Sender
 }
 
 type server struct {
-	db  *pgxpool.Pool
-	cfg config.Config
-	log *slog.Logger
-	tpl map[string]*template.Template
+	db     *pgxpool.Pool
+	cfg    config.Config
+	log    *slog.Logger
+	mail   mail.Sender
+	limits *limiter
+	tpl    map[string]*template.Template
 }
 
 // New returns the application's handler.
 func New(d Deps) http.Handler {
-	s := &server{db: d.DB, cfg: d.Config, log: d.Logger, tpl: parseTemplates()}
+	s := &server{db: d.DB, cfg: d.Config, log: d.Logger, mail: d.Mail, limits: newLimiter(15 * time.Minute), tpl: parseTemplates()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.home)
 	mux.HandleFunc("GET /search", s.search)
 	mux.HandleFunc("GET /spots/{id}", s.spot)
 	mux.HandleFunc("GET /static/{file...}", s.static)
+	mux.HandleFunc("GET /sign-up", s.signUpForm)
+	mux.HandleFunc("POST /sign-up", s.signUpPost)
+	mux.HandleFunc("GET /sign-in", s.signInForm)
+	mux.HandleFunc("POST /sign-in", s.signInPost)
+	mux.HandleFunc("POST /sign-out", s.signOut)
+	mux.HandleFunc("GET /account", s.account)
+	mux.HandleFunc("GET /account/password", s.passwordForm)
+	mux.HandleFunc("POST /account/password", s.passwordPost)
 
 	var h http.Handler = s.routeErrors(mux)
+	h = s.sessions(h)
 	h = s.recover(h)
 	h = s.logRequests(h)
 	h = securityHeaders(d.Config.Production())(h)

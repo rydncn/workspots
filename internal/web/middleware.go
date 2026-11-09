@@ -96,12 +96,14 @@ func (s *server) recover(next http.Handler) http.Handler {
 }
 
 // routeErrors replaces the mux's own plain-text 404 and 405 with problems,
-// keeping the Allow header on a 405.
+// keeping the Allow header on a 405. Matched routes go through the CSRF check
+// and then the mux, so path values are bound.
 func (s *server) routeErrors(mux *http.ServeMux) http.Handler {
+	dispatch := s.csrf(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h, pattern := mux.Handler(r)
 		if pattern != "" {
-			mux.ServeHTTP(w, r) // through the mux, so path values are bound
+			dispatch.ServeHTTP(w, r)
 			return
 		}
 		rec := httptest.NewRecorder()

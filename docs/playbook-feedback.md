@@ -37,6 +37,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 23. **The CI template's npm version check fails on the Node the template itself selects.** `setup-node` with Node 22 (the current LTS) ships npm 10.9, so the template's "npm supply-chain settings take effect" step fails on its first run, which is the step working as designed but a trap for every new project. The template should add `npm install -g npm@11` (pinned) before the check, or say which Node major carries npm 11.10. Found by the e2e job's first full run here.
 
+24. **`api.md`'s cookie rules meet Go's test tooling.** `Secure` cookies only round-trip through `httptest.NewTLSServer`, and `httptest.Server.Client()` returns one shared client, so "a browser per user" needs a client per browser or every user is the same person. Neither is in the template, and both cost an hour here. A Go note on the "How these are checked" section would save it.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

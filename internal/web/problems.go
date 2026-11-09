@@ -12,12 +12,13 @@ import (
 
 // Problem is an RFC 9457 problem. Type is a stable path per kind of problem.
 type Problem struct {
-	Type          string `json:"type"`
-	Title         string `json:"title"`
-	Status        int    `json:"status"`
-	Detail        string `json:"detail,omitempty"`
-	Instance      string `json:"instance,omitempty"`
-	CorrelationID string `json:"correlationId,omitempty"`
+	Type          string       `json:"type"`
+	Title         string       `json:"title"`
+	Status        int          `json:"status"`
+	Detail        string       `json:"detail,omitempty"`
+	Instance      string       `json:"instance,omitempty"`
+	CorrelationID string       `json:"correlationId,omitempty"`
+	Errors        []fieldError `json:"errors,omitempty"`
 }
 
 var (
@@ -25,6 +26,16 @@ var (
 	methodNotAllowed = Problem{Type: "/problems/method-not-allowed", Title: "Method not allowed", Status: 405, Detail: "This address does not accept that method; see the Allow header."}
 	internal         = Problem{Type: "/problems/internal", Title: "Something went wrong", Status: 500,
 		Detail: "The problem has been logged. Quote the correlation ID if you report it."}
+	crossSite = Problem{Type: "/problems/csrf", Title: "Request refused", Status: 403,
+		Detail: "This form was sent without a valid csrf token, or from another site. Go back, reload the page and try again."}
+	badForm = Problem{Type: "/problems/bad-form", Title: "Form could not be read", Status: 400,
+		Detail: "The form data was missing, too large or malformed."}
+	signInRequired = Problem{Type: "/problems/sign-in-required", Title: "Sign in required", Status: 401,
+		Detail: "Sign in to do this."}
+	validation = Problem{Type: "/problems/validation", Title: "Some fields need attention", Status: 422,
+		Detail: "One or more fields are missing or not valid; see errors."}
+	tooMany = Problem{Type: "/problems/rate-limited", Title: "Too many attempts", Status: 429,
+		Detail: "Too many attempts in a short time. Wait for the number of seconds in the Retry-After header and try again."}
 )
 
 // domainProblems maps each domain error to its problem, in one place. Domain
@@ -53,7 +64,7 @@ func (s *server) writeProblem(w http.ResponseWriter, r *http.Request, p Problem)
 	p.Instance = r.URL.Path
 	p.CorrelationID = obs.CorrelationID(r.Context())
 	if prefersHTML(r) {
-		s.render(w, r, p.Status, "problem.html", p)
+		s.render(w, r, p.Status, "problem.html", map[string]any{"Problem": p})
 		return
 	}
 	w.Header().Set("Content-Type", "application/problem+json")

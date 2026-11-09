@@ -53,6 +53,7 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - own process: 1. `git checkout` of a template to undo a planted break reverted the slice's uncommitted changes to it as well; rewritten from the session. Lesson: commit before planting breaks, or plant them in a copy.
   - hooks: 0.
   - CI, draft run: 0 (the new npm lockfile, signature and audit steps passed first time).
+  - CI, first full run: 1. The e2e job failed at the template's npm version check: Node 22 on the runner ships npm 10.9, below the 11.10 that `min-release-age` needs. The security job had run `npm ci` with the same npm, so its release-age setting had silently not applied. Both jobs now install npm 11 first.
   - fresh-context review (subagent, about 138k tokens): 10 findings, 2 must-fix, all verified and fixed test-first.
     1. MUST A NUL byte in the `area` query reached Postgres and became a 500; the 80-character cut was by byte, so a multibyte character could be split. Now cleaned at the edge, with a test.
     2. MUST The e2e setup polled the port without checking its own child was alive, so the suite could pass against a server it did not start. It now refuses an occupied port (proven by starting another server first) and fails if the child exits.

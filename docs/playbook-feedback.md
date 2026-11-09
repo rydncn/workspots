@@ -35,6 +35,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 21. **"Every journey works without JavaScript" collides with axe.** axe-core is JavaScript, so a Playwright project with `javaScriptEnabled: false` (the natural way to prove AC29) hangs the axe run. The working pattern: take the page's HTML in whatever state it is, render it in a second JavaScript-enabled context at the same viewport with a `<base>` so the stylesheet loads, and run axe there. Worth a sentence in the accessibility row of `GATES.md`, since progressive-enhancement sites will hit it first.
 22. **A strict CSP makes some planted breaks silent.** Planting an inline `style` to break a layout check does nothing when the CSP forbids inline styles; the gate "passed" and only a second look showed the break hadn't happened. Rule 15's "seen to fail for the right reason" applies to planted breaks too: check the break landed before trusting the red or the green.
 
+23. **The CI template's npm version check fails on the Node the template itself selects.** `setup-node` with Node 22 (the current LTS) ships npm 10.9, so the template's "npm supply-chain settings take effect" step fails on its first run, which is the step working as designed but a trap for every new project. The template should add `npm install -g npm@11` (pinned) before the check, or say which Node major carries npm 11.10. Found by the e2e job's first full run here.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

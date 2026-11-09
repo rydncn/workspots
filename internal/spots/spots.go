@@ -146,7 +146,9 @@ func Get(ctx context.Context, db *pgxpool.Pool, viewer Viewer, id int64) (Spot, 
 	return spot, err
 }
 
-// VisibleReports returns a spot's reports that moderators haven't hidden, newest first.
+// VisibleReports returns a spot's reports that moderators haven't hidden,
+// newest first: every one, as history; only each member's latest votes
+// (the spot_attributes view).
 func VisibleReports(ctx context.Context, db *pgxpool.Pool, spotID int64) ([]Report, error) {
 	rows, err := db.Query(ctx, `SELECT id, note, created_at, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space
 		FROM reports WHERE spot_id = $1 AND NOT hidden ORDER BY created_at DESC, id DESC`, spotID)
@@ -177,11 +179,11 @@ func Add(ctx context.Context, db *pgxpool.Pool, authorID int64, n NewSpot) (int6
 	return id, constraint(err)
 }
 
-// AddReport stores a member's report on an approved spot (AC16). A spot the
-// public cannot see cannot be reported on.
+// AddReport stores a member's report on a public spot (AC16). What the public
+// can see is the public_spots view (migration 0005), nowhere else.
 func AddReport(ctx context.Context, db *pgxpool.Pool, authorID, spotID int64, a Attributes, note string) error {
 	tag, err := db.Exec(ctx, `INSERT INTO reports (spot_id, author_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note)
-		SELECT s.id, $1, $3, $4, $5, $6, $7, $8, $9, $10 FROM spots s WHERE s.id = $2 AND s.status = 'approved'`,
+		SELECT s.id, $1, $3, $4, $5, $6, $7, $8, $9, $10 FROM public_spots s WHERE s.id = $2`,
 		authorID, spotID, a.Wifi, a.Noise, a.Power, a.TimeLimit, a.StepFree, a.AccessibleToilet, a.Quiet, note)
 	if err != nil {
 		return constraint(err)
@@ -213,11 +215,10 @@ func constraint(err error) error {
 	return err
 }
 
-// ReportVisible reports whether a report exists, is not hidden, and is on an
-// approved spot: the public can see it, so the public can flag it.
+// ReportVisible reports whether the public can see a report (the
+// public_reports view), and so may flag it.
 func ReportVisible(ctx context.Context, db *pgxpool.Pool, reportID int64) (bool, error) {
 	var ok bool
-	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM reports r JOIN spots s ON s.id = r.spot_id
-		WHERE r.id = $1 AND NOT r.hidden AND s.status = 'approved')`, reportID).Scan(&ok)
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM public_reports WHERE id = $1)`, reportID).Scan(&ok)
 	return ok, err
 }

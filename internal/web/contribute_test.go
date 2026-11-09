@@ -169,6 +169,32 @@ func TestAC16ReportShowsAtOnce(t *testing.T) {
 	}
 }
 
+// AC16, one vote per member: three members' reports decide an attribute, and a
+// fourth member posting five contrary reports does not overturn them. The
+// earlier reports stay on the page as history.
+func TestAC16OneVotePerMemberPerSpot(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	id := a.addSpotWith(t, "Contested Café", "Leeds", "approved", attrs{Wifi: 3, Noise: 2, StepFree: true})
+	for i := 0; i < 3; i++ {
+		a.addReportBy(t, a.seedMember(t), id, attrs{Wifi: 3, Noise: 2, StepFree: false}, "No step-free entrance", false, 3-i)
+	}
+	_, body := get(t, a, fmt.Sprintf("/spots/%d", id))
+	has(t, body, "<dt>Step-free entrance</dt><dd>No</dd>", "From 3 reports")
+
+	loud := signedIn(t, a, "loud")
+	path := fmt.Sprintf("/spots/%d/reports/new", id)
+	for i := 0; i < 5; i++ {
+		form := reportForm(fmt.Sprintf("Insisting %d", i))
+		form.Set("step_free", "1")
+		if res, _ := loud.post(path, path, form); res.StatusCode != 303 {
+			t.Fatalf("report %d: %d", i, res.StatusCode)
+		}
+	}
+	_, body = get(t, a, fmt.Sprintf("/spots/%d", id))
+	has(t, body, "<dt>Step-free entrance</dt><dd>No</dd>", "From 8 reports", "Insisting 0", "Insisting 4")
+}
+
 // Contributions are rate limited per member, so one account cannot flood the
 // queue or set a spot's attributes alone.
 func TestContributionsAreLimitedPerMember(t *testing.T) {

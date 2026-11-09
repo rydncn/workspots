@@ -43,6 +43,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 26. **A human review after both automated layers still found three real defects in slice 3.** An open redirect through a tab in the return path (browsers strip tabs; the check didn't), a check-then-count rate limiter that concurrent attempts walk through, and uncapped concurrent argon2id. Neither review brief named browser URL normalisation, concurrency or resource exhaustion, and neither reviewer went there unprompted. The playbook's review cadence could add a short list of question types the briefs must include for an auth change (what does the browser do to this value, what happens when twenty of these arrive at once, what does one of these cost), or route auth slices to the security audit earlier than "before the final review".
 
+27. **Acceptance criteria written per behaviour miss what one actor can do to a shared result.** Thirty criteria, two automated review layers and a human review of slice 3 all passed a view that let one account outvote everyone on a spot's attributes; the human review of slice 4 caught it. The design template's prompt for unhappy paths ("empty, invalid, refused, offline, worst-case data") could add "one actor, many times" for anything aggregated or ranked.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

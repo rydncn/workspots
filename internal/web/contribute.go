@@ -17,8 +17,9 @@ const (
 	maxName, maxArea, maxAddress, maxHours, maxNote, maxReason = 120, 80, 200, 500, 500, 500
 )
 
-// Contributions per member in a quarter hour, so one account cannot flood the
-// queue or set a spot's attributes alone.
+// Contributions per member in a quarter hour, against flooding. (One account
+// cannot set a spot's attributes however many reports it posts: the
+// spot_attributes view counts one vote per member, migration 0005.)
 const (
 	spotsPerMember, reportsPerMember, problemsPerMember = 10, 20, 20
 )

@@ -8,13 +8,6 @@ INSERT INTO spots (name, kind, area, address, opening_hours, status, wifi, noise
  -- For the report journeys, so their reports don't move the attributes the browse journeys assert on.
  ('Reportable Café', 'cafe', 'Bradford', '9 Market St, Bradford BD1 1AA', 'Daily 8-20', 'approved', 2, 2, true, false, true, false, false);
 
-INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
-SELECT id, 4, 1, true, false, true, true, false, 'Big tables upstairs, sockets along the wall.', false, now() - interval '3 days' FROM spots WHERE name = 'Riverside Café';
-INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
-SELECT id, 3, 2, true, false, true, true, false, 'Busy at lunch.', false, now() - interval '1 day' FROM spots WHERE name = 'Riverside Café';
-INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
-SELECT id, 0, 3, false, true, false, false, false, 'HIDDEN SPAM NOTE', true, now() FROM spots WHERE name = 'Riverside Café';
-
 -- Members for the end-to-end tests to sign in as (password "a long enough
 -- password", hashed once with the app's own argon2id parameters), so that
 -- only the sign-up journey signs up and the in-memory rate limits (ten
@@ -27,3 +20,11 @@ INSERT INTO users (email, password_hash) VALUES
 INSERT INTO users (email, password_hash) VALUES
  ('contributor-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
  ('contributor-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko');
+
+INSERT INTO reports (spot_id, author_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
+SELECT id, (SELECT id FROM users WHERE email = 'member-desktop@example.test'), 4, 1, true, false, true, true, false, 'Big tables upstairs, sockets along the wall.', false, now() - interval '3 days' FROM spots WHERE name = 'Riverside Café';
+INSERT INTO reports (spot_id, author_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
+SELECT id, (SELECT id FROM users WHERE email = 'reader-desktop@example.test'), 3, 2, true, false, true, true, false, 'Busy at lunch.', false, now() - interval '1 day' FROM spots WHERE name = 'Riverside Café';
+INSERT INTO reports (spot_id, author_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
+SELECT id, (SELECT id FROM users WHERE email = 'reader-narrow-320@example.test'), 0, 3, false, true, false, false, false, 'HIDDEN SPAM NOTE', true, now() FROM spots WHERE name = 'Riverside Café';
+

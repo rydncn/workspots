@@ -12,18 +12,18 @@ import (
 // ErrTargetNotFound is returned when the spot or report to flag is not visible.
 var ErrTargetNotFound = errors.New("there is nothing to report at this address")
 
-// ReportSpotProblem files a problem with an approved spot (AC22).
+// ReportSpotProblem files a problem with a public spot (AC22). What the public
+// can see is the public_spots view (migration 0005), nowhere else.
 func ReportSpotProblem(ctx context.Context, db *pgxpool.Pool, reporterID, spotID int64, reason string) error {
 	tag, err := db.Exec(ctx, `INSERT INTO problem_reports (spot_id, reporter_id, reason)
-		SELECT id, $1, $3 FROM spots WHERE id = $2 AND status = 'approved'`, reporterID, spotID, reason)
+		SELECT id, $1, $3 FROM public_spots WHERE id = $2`, reporterID, spotID, reason)
 	return inserted(tag.RowsAffected(), err)
 }
 
-// ReportReportProblem files a problem with a visible report (AC22).
+// ReportReportProblem files a problem with a public report (AC22).
 func ReportReportProblem(ctx context.Context, db *pgxpool.Pool, reporterID, reportID int64, reason string) error {
 	tag, err := db.Exec(ctx, `INSERT INTO problem_reports (report_id, reporter_id, reason)
-		SELECT r.id, $1, $3 FROM reports r JOIN spots s ON s.id = r.spot_id
-		WHERE r.id = $2 AND NOT r.hidden AND s.status = 'approved'`, reporterID, reportID, reason)
+		SELECT id, $1, $3 FROM public_reports WHERE id = $2`, reporterID, reportID, reason)
 	return inserted(tag.RowsAffected(), err)
 }
 

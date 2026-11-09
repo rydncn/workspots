@@ -149,6 +149,7 @@ How context is measured: the playbook's context-budget hook reads the transcript
     5. `SetStatus` took any string; now refuses anything but approved or rejected.
     6. `api.md` says a change of privilege replaces the session; a role change left the account's sessions alive. Now the role update ends them in the same statement, the admin page says so, and AC21 asserts the old session is 401 and a fresh sign-in is a moderator.
     7. "is now a admin" copy; 8. the role select forgot its choice on a 422; 9. the last admin can demote themselves, recorded in the handoff with `grant-role` as the way back.
+  - playbook catch-up (`f2fd445` → `6cb43d9`, at Ryan's prompt): the fixed `context-budget.mjs` copied in; rule 19 applied: a Lifecycles table in the design (spot, report, problem report, session), `SetStatus` now refuses a same-state move (the transition-table test failed first on "approved --approve--> expected refusal"), and session expiry has one definition in `accounts.expired` where three queries each spelt it. Not done: a rule check that fails on code reading the lifecycle fields outside their definitions (`spots.visible` and `VisibleReports` read `status` and `hidden` directly), left for the whole-codebase review to weigh.
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

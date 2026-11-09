@@ -56,3 +56,96 @@ func TestActionsNeedAModerator(t *testing.T) {
 		t.Errorf("the moderator's approval did not land: %q", status)
 	}
 }
+
+// Rule 19: every state and every action of each moderation lifecycle has a
+// decided outcome (docs/design.md, Lifecycles). A state or action without a
+// row here fails.
+func TestLifecycleTransitions(t *testing.T) {
+	t.Parallel()
+	adminURL, appURL := testdb.New(t)
+	ctx := context.Background()
+	admin, err := pgxpool.New(ctx, adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	db, err := pgxpool.New(ctx, appURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var mod, author int64
+	_ = admin.QueryRow(ctx, `INSERT INTO users (email, password_hash, role) VALUES ('mod@example.test', 'x', 'moderator') RETURNING id`).Scan(&mod)
+	_ = admin.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ('a@example.test', 'x') RETURNING id`).Scan(&author)
+
+	// to is the state after the action, or "" when the move is refused with ErrNothingToModerate.
+	table := map[string]map[string]map[string]string{
+		"spot": { // status
+			"pending":  {"approve": "approved", "reject": "rejected"},
+			"approved": {"approve": "", "reject": "rejected"},
+			"rejected": {"approve": "approved", "reject": ""},
+		},
+		"report": { // hidden
+			"visible": {"hide": "hidden"},
+			"hidden":  {"hide": ""},
+		},
+		"problem": { // status
+			"open":     {"resolve": "resolved"},
+			"resolved": {"resolve": ""},
+		},
+	}
+	// put makes a row in the state and returns a function reading its state back.
+	put := func(lifecycle, state string) (int64, func() string) {
+		var id int64
+		var read string
+		switch lifecycle {
+		case "spot":
+			_ = admin.QueryRow(ctx, `INSERT INTO spots (name, kind, area, address, status) VALUES ('S', 'cafe', 'Leeds', '1 St', $1) RETURNING id`, state).Scan(&id)
+			read = `SELECT status FROM spots WHERE id = $1`
+		case "report":
+			var spot int64
+			_ = admin.QueryRow(ctx, `INSERT INTO spots (name, kind, area, address, status) VALUES ('S', 'cafe', 'Leeds', '1 St', 'approved') RETURNING id`).Scan(&spot)
+			_ = admin.QueryRow(ctx, `INSERT INTO reports (spot_id, author_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, hidden)
+				VALUES ($1, $2, 2, 2, false, false, false, false, false, $3) RETURNING id`, spot, author, state == "hidden").Scan(&id)
+			read = `SELECT CASE WHEN hidden THEN 'hidden' ELSE 'visible' END FROM reports WHERE id = $1`
+		case "problem":
+			var spot int64
+			_ = admin.QueryRow(ctx, `INSERT INTO spots (name, kind, area, address, status) VALUES ('S', 'cafe', 'Leeds', '1 St', 'approved') RETURNING id`).Scan(&spot)
+			_ = admin.QueryRow(ctx, `INSERT INTO problem_reports (spot_id, reporter_id, reason, status) VALUES ($1, $2, 'r', $3) RETURNING id`, spot, author, state).Scan(&id)
+			read = `SELECT status FROM problem_reports WHERE id = $1`
+		}
+		return id, func() string {
+			var s string
+			_ = admin.QueryRow(ctx, read, id).Scan(&s)
+			return s
+		}
+	}
+	act := func(action string, id int64) error {
+		switch action {
+		case "approve":
+			return moderation.SetStatus(ctx, db, mod, id, "approved")
+		case "reject":
+			return moderation.SetStatus(ctx, db, mod, id, "rejected")
+		case "hide":
+			return moderation.HideReport(ctx, db, mod, id, "why")
+		case "resolve":
+			return moderation.Resolve(ctx, db, mod, id)
+		}
+		t.Fatalf("no such action %q", action)
+		return nil
+	}
+	for lifecycle, states := range table {
+		for from, actions := range states {
+			for action, to := range actions {
+				id, state := put(lifecycle, from)
+				err := act(action, id)
+				switch {
+				case to == "" && !errors.Is(err, moderation.ErrNothingToModerate):
+					t.Errorf("%s %s --%s--> expected refusal, got %v (now %s)", lifecycle, from, action, err, state())
+				case to != "" && (err != nil || state() != to):
+					t.Errorf("%s %s --%s--> %s: err %v, now %s", lifecycle, from, action, to, err, state())
+				}
+			}
+		}
+	}
+}

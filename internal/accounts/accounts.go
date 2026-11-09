@@ -36,6 +36,10 @@ var Roles = []string{"member", "moderator", "admin"}
 // SessionLifetime is how long a session lasts from sign-in (docs/design.md, retention).
 const SessionLifetime = 30 * 24 * time.Hour
 
+// expired is the one definition of a session that has run out (rule 19): a
+// live session is NOT expired. Expired rows are deleted whenever sessions change.
+const expired = `expires_at <= now()`
+
 // User is a signed-up person.
 type User struct {
 	ID    int64
@@ -130,7 +134,7 @@ func CreateSession(ctx context.Context, db *pgxpool.Pool, userID int64) (string,
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	// Retention (docs/design.md): expired sessions are deleted, not just ignored.
-	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE expires_at <= now()`); err != nil {
+	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE `+expired); err != nil {
 		return "", err
 	}
 	_, err := db.Exec(ctx, `INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + $3::interval)`,
@@ -148,7 +152,7 @@ func SessionID(token string) string {
 func SessionUser(ctx context.Context, db *pgxpool.Pool, token string) (User, error) {
 	var u User
 	err := db.QueryRow(ctx, `SELECT u.id, u.email, u.role FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.id = $1 AND s.expires_at > now()`, SessionID(token)).Scan(&u.ID, &u.Email, &u.Role)
+		WHERE s.id = $1 AND NOT (s.`+expired+`)`, SessionID(token)).Scan(&u.ID, &u.Email, &u.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrSessionNotFound
 	}
@@ -158,7 +162,7 @@ func SessionUser(ctx context.Context, db *pgxpool.Pool, token string) (User, err
 // EndSession deletes one session, and any expired ones while it is at it; a
 // token that is already gone is not an error.
 func EndSession(ctx context.Context, db *pgxpool.Pool, token string) error {
-	_, err := db.Exec(ctx, `DELETE FROM sessions WHERE id = $1 OR expires_at <= now()`, SessionID(token))
+	_, err := db.Exec(ctx, `DELETE FROM sessions WHERE id = $1 OR `+expired, SessionID(token))
 	return err
 }
 

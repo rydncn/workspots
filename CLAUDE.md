@@ -2,7 +2,7 @@
 
 Finds good places to work remotely: cafés, libraries, coworking spaces, hotel lobbies. Anyone searches; members add spots and leave reports; moderators approve and hide. Server-rendered Go, Postgres, no JavaScript.
 
-Set up against ai-playbook `f2fd445`. Its `CHANGELOG.md` lists what changed since, and what to do about each change. This is trial 2 of that playbook's core: feedback on it goes in `docs/playbook-feedback.md`, effort and defects in `docs/trial-log.md`.
+Set up against ai-playbook `f2fd445`, caught up to `6cb43d9` in slice 5 (the context-budget hook; rule 19, lifecycles, in `docs/design.md`). Its `CHANGELOG.md` lists what changed since, and what to do about each change. This is trial 2 of that playbook's core: feedback on it goes in `docs/playbook-feedback.md`, effort and defects in `docs/trial-log.md`.
 
 Docs: design and acceptance criteria in `docs/design.md`, decisions in `docs/decisions/`, where the work is in `docs/handoff.md`. A slice's plan is its pull request description.
 

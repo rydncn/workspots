@@ -63,6 +63,17 @@ What is real in tests: the real server, the real Postgres with every migration a
 | Rate-limit counters (hashed IP and account key) | Abuse control                       | In memory, 15 minutes; pruned when next consulted          |
 | Logs (correlation ID, route, status, user id)   | Operations                          | Whatever the log sink keeps; never an address, note or token |
 
+## Lifecycles
+
+Each thing with stages has one status field, one function that moves it, and one definition of each derived condition (playbook rule 19). `TestLifecycleTransitions` walks the moderation tables; a state or action without a row fails it.
+
+| Lifecycle | Field | States | Moves | Derived condition, defined once |
+|---|---|---|---|---|
+| Spot | `spots.status` | pending, approved, rejected | `moderation.SetStatus`: pending → approved or rejected; approved ↔ rejected (a moderator reverses a decision); the same state again is refused | Public: the `public_spots` view. Visible to a viewer (public, or own, or moderator): `spots.visible`. |
+| Report | `reports.hidden` (with `hidden_reason`, `hidden_at`) | visible, hidden | `moderation.HideReport`: visible → hidden; hidden again is refused. No unhide: a wrongly hidden report is posted again. | Public: the `public_reports` view; counted in `spot_attributes`. |
+| Problem report | `problem_reports.status` | open, resolved | `moderation.Resolve`: open → resolved; resolved again is refused | On the queue: `moderation.OpenProblems` (`status = 'open'`). |
+| Session | `sessions.expires_at` | live, expired | By time only: `accounts.expired` is the one definition; expired rows are deleted whenever sessions change (`CreateSession`, `EndSession`), never read as live | Live: `NOT expired`, in `accounts.SessionUser`. |
+
 ## Acceptance criteria
 
 Numbered, one block per behaviour. Each becomes an acceptance test that names its number. "Problem" means an RFC 9457 problem response in the shape of the request's `Accept` header.

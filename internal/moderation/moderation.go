@@ -90,7 +90,8 @@ func moderator(ctx context.Context, db *pgxpool.Pool, actorID int64) error {
 	return err
 }
 
-// SetStatus approves or rejects a spot (AC19).
+// SetStatus approves or rejects a spot (AC19); a spot already in that state
+// is nothing to moderate (the lifecycle table in docs/design.md).
 func SetStatus(ctx context.Context, db *pgxpool.Pool, actorID, spotID int64, status string) error {
 	if status != "approved" && status != "rejected" {
 		return ErrInvalidStatus
@@ -98,7 +99,7 @@ func SetStatus(ctx context.Context, db *pgxpool.Pool, actorID, spotID int64, sta
 	if err := moderator(ctx, db, actorID); err != nil {
 		return err
 	}
-	tag, err := db.Exec(ctx, `UPDATE spots SET status = $2 WHERE id = $1`, spotID, status)
+	tag, err := db.Exec(ctx, `UPDATE spots SET status = $2 WHERE id = $1 AND status <> $2`, spotID, status)
 	return acted(tag.RowsAffected(), err, ErrNothingToModerate)
 }
 

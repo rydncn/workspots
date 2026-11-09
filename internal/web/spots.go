@@ -94,7 +94,7 @@ func (s *server) spot(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, spots.ErrSpotNotFound)
 		return
 	}
-	spot, err := spots.Get(r.Context(), s.db, id)
+	spot, err := spots.Get(r.Context(), s.db, viewer(r), id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -105,4 +105,17 @@ func (s *server) spot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, http.StatusOK, "spot.html", map[string]any{"Spot": spot, "Reports": reports})
+}
+
+// viewer is who is looking, for the visibility rule.
+func viewer(r *http.Request) spots.Viewer {
+	if u := currentSession(r).user; u != nil {
+		return spots.Viewer{UserID: u.ID, Moderator: u.Role == "moderator" || u.Role == "admin"}
+	}
+	return spots.Anonymous
+}
+
+func pathID(r *http.Request, name string) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
+	return id, err == nil && id > 0
 }

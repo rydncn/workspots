@@ -46,10 +46,11 @@ func (s *syncBuffer) String() string {
 
 type app struct {
 	*httptest.Server
-	admin *pgx.Conn // migrate role, for arranging data
-	pool  *pgxpool.Pool
-	logs  *syncBuffer
-	mail  *mail.Recorder
+	admin  *pgx.Conn // migrate role, for arranging data
+	pool   *pgxpool.Pool
+	logs   *syncBuffer
+	mail   *mail.Recorder
+	seeder int64 // a member who authors seeded reports
 }
 
 // newApp starts the real server over HTTP against its own migrated database,
@@ -444,12 +445,32 @@ func (a *app) addSpotWith(t *testing.T, name, area, status string, at attrs) int
 	return id
 }
 
+// seedMember inserts a member row directly and returns its id.
+func (a *app) seedMember(t *testing.T) int64 {
+	t.Helper()
+	var id int64
+	if err := a.admin.QueryRow(context.Background(), `INSERT INTO users (email, password_hash) VALUES ($1, 'seeded') RETURNING id`, unique("seed")).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// addReport seeds a report by one fixed member (the seeder), so several seeded
+// reports on one spot count as that member's history, not several votes.
 func (a *app) addReport(t *testing.T, spot int64, at attrs, note string, hidden bool, daysAgo int) {
 	t.Helper()
+	if a.seeder == 0 {
+		a.seeder = a.seedMember(t)
+	}
+	a.addReportBy(t, a.seeder, spot, at, note, hidden, daysAgo)
+}
+
+func (a *app) addReportBy(t *testing.T, author, spot int64, at attrs, note string, hidden bool, daysAgo int) {
+	t.Helper()
 	_, err := a.admin.Exec(context.Background(),
-		`INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() - make_interval(days => $11))`,
-		spot, at.Wifi, at.Noise, at.Power, at.TimeLimit, at.StepFree, at.AccessibleToilet, at.Quiet, note, hidden, daysAgo)
+		`INSERT INTO reports (spot_id, author_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
+		 VALUES ($1, $12, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() - make_interval(days => $11))`,
+		spot, at.Wifi, at.Noise, at.Power, at.TimeLimit, at.StepFree, at.AccessibleToilet, at.Quiet, note, hidden, daysAgo, author)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,8 +565,8 @@ func TestAC3FiltersCombine(t *testing.T) {
 	a.addSpotWith(t, "Time Limited", "Leeds", "approved", attrs{Wifi: 4, Noise: 1, Power: true, TimeLimit: true, StepFree: true, AccessibleToilet: true, Quiet: true})
 	// Declared as good Wi-Fi, but two reports say poor: reports win.
 	reported := a.addSpotWith(t, "Reported Poor Wifi", "Leeds", "approved", good)
-	a.addReport(t, reported, attrs{Wifi: 1, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 2)
-	a.addReport(t, reported, attrs{Wifi: 1, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 1)
+	a.addReportBy(t, a.seedMember(t), reported, attrs{Wifi: 1, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 2)
+	a.addReportBy(t, a.seedMember(t), reported, attrs{Wifi: 1, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 1)
 	// Declared as no step-free access, but a report says there is; a hidden report says not.
 	stepFree := a.addSpotWith(t, "Step Free By Report", "Leeds", "approved", attrs{Wifi: 3, Noise: 1, Power: true, StepFree: false, AccessibleToilet: true, Quiet: true})
 	a.addReport(t, stepFree, attrs{Wifi: 3, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 1)

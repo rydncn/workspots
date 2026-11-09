@@ -1,0 +1,15 @@
+{{define "title"}}Report a problem: Workspots{{end}}
+{{define "main"}}
+<h1>Report a problem with {{.About}}</h1>
+<p>A moderator will look at it. Say what is wrong: closed down, not a workplace, abusive, advertising, or anything else.</p>
+{{template "errors" .}}
+<form method="post" action="{{.Action}}" class="stack wide">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="field">
+    <label for="reason">What is the problem?</label>
+    <textarea id="reason" name="reason" rows="4" maxlength="500" required{{template "invalid" (dict . "reason")}}>{{.Reason}}</textarea>
+    {{template "field_error" (dict . "reason")}}
+  </div>
+  <button type="submit">Send to moderators</button>
+</form>
+{{end}}

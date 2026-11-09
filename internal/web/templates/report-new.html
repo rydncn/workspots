@@ -1,0 +1,16 @@
+{{define "title"}}Report on {{.Spot.Name}}: Workspots{{end}}
+{{define "main"}}
+<h1>How was working at {{.Spot.Name}}?</h1>
+{{template "errors" .}}
+<form method="post" action="/spots/{{.Spot.ID}}/reports/new" class="stack wide">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  {{template "attribute_fields" (attrs . .Report)}}
+  <div class="field">
+    <label for="note">A short note <span class="hint">(optional, up to 500 characters)</span></label>
+    <textarea id="note" name="note" rows="4" maxlength="500"{{template "invalid" (dict . "note")}}>{{.Note}}</textarea>
+    {{template "field_error" (dict . "note")}}
+  </div>
+  <button type="submit">Add report</button>
+</form>
+<p><a href="/spots/{{.Spot.ID}}">Back to {{.Spot.Name}}</a></p>
+{{end}}

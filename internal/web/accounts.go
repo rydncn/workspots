@@ -11,6 +11,7 @@ import (
 
 	"github.com/rydncn/workspots/internal/accounts"
 	"github.com/rydncn/workspots/internal/mail"
+	"github.com/rydncn/workspots/internal/spots"
 )
 
 // Rate limits (AC12): failures per address and per IP for sign-in, attempts
@@ -135,7 +136,12 @@ func (s *server) account(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.render(w, r, http.StatusOK, "account.html", map[string]any{"Account": u, "Changed": r.URL.Query().Get("changed") == "1"})
+	mine, err := spots.Mine(r.Context(), s.db, u.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.render(w, r, http.StatusOK, "account.html", map[string]any{"Account": u, "Changed": r.URL.Query().Get("changed") == "1", "Mine": mine})
 }
 
 func (s *server) passwordForm(w http.ResponseWriter, r *http.Request) {

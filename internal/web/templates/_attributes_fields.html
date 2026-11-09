@@ -1,0 +1,26 @@
+{{define "attribute_fields"}}
+<fieldset id="wifi"{{template "invalid" (dict . "wifi")}}>
+  <legend>Wi-Fi</legend>
+  <div class="radios">
+  {{range $i, $l := .WifiLabels}}<label><input type="radio" name="wifi" value="{{$i}}"{{if eq $i (int $.A.Wifi)}} checked{{end}} required> {{$l}}</label>{{end}}
+  </div>
+  {{template "field_error" (dict . "wifi")}}
+</fieldset>
+<fieldset id="noise"{{template "invalid" (dict . "noise")}}>
+  <legend>Noise</legend>
+  <div class="radios">
+  {{range $i, $l := .NoiseLabels}}{{if gt $i 0}}<label><input type="radio" name="noise" value="{{$i}}"{{if eq $i (int $.A.Noise)}} checked{{end}} required> {{$l}}</label>{{end}}{{end}}
+  </div>
+  {{template "field_error" (dict . "noise")}}
+</fieldset>
+<fieldset>
+  <legend>Also true here</legend>
+  <div class="checks">
+    <label><input type="checkbox" name="power" value="1"{{if .A.Power}} checked{{end}}> Power sockets</label>
+    <label><input type="checkbox" name="time_limit" value="1"{{if .A.TimeLimit}} checked{{end}}> Seating is time-limited</label>
+    <label><input type="checkbox" name="step_free" value="1"{{if .A.StepFree}} checked{{end}}> Step-free entrance</label>
+    <label><input type="checkbox" name="accessible_toilet" value="1"{{if .A.AccessibleToilet}} checked{{end}}> Accessible toilet</label>
+    <label><input type="checkbox" name="quiet_space" value="1"{{if .A.Quiet}} checked{{end}}> Quiet space</label>
+  </div>
+</fieldset>
+{{end}}

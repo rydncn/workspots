@@ -4,10 +4,12 @@ package spots
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -68,10 +70,23 @@ type Filter struct {
 const spotColumns = `s.id, s.name, s.kind, s.area, s.address, s.opening_hours, s.status, a.report_count,
 	a.wifi, a.noise, a.power, a.time_limit, a.step_free, a.accessible_toilet, a.quiet_space`
 
-// visible is the one definition of which spots a visitor may see, used by
-// every query that returns spots. Slice 4 adds the author and slice 5 the
-// moderators here, and nowhere else.
-const visible = `s.status = 'approved'`
+// Viewer is who is looking: Anonymous for a visitor without an account.
+type Viewer struct {
+	UserID    int64
+	Moderator bool // moderators and admins see every spot (slice 5)
+}
+
+// Anonymous is a signed-out visitor.
+var Anonymous = Viewer{}
+
+// visible is the one definition of which spots a viewer may see, used by
+// every query that returns spots and nowhere else: approved spots, a
+// member's own spots in any state, and everything for a moderator. Every
+// query that uses it takes the viewer's id as $1 and moderator flag as $2.
+const visible = `(s.status = 'approved' OR s.created_by = $1 OR $2)`
+
+// ErrInvalid is returned for a field the database constraints refuse.
+var ErrInvalid = errors.New("the spot or report is not valid")
 
 // PageSize is how many spots a search page lists.
 const PageSize = 50
@@ -84,20 +99,22 @@ const PageSize = 50
 func Search(ctx context.Context, db *pgxpool.Pool, f Filter) (page []Spot, more bool, err error) {
 	words := strings.Fields(strings.ToLower(strings.NewReplacer(",", " ", ";", " ", "/", " ").Replace(f.Area)))
 	offset := max(f.Page-1, 0) * PageSize
+	// Search lists approved spots only, whoever is looking: a pending spot is
+	// reached from its author's account page, not from search (AC14).
 	rows, err := db.Query(ctx, `SELECT `+spotColumns+`
 		FROM spots s JOIN spot_attributes a ON a.spot_id = s.id
 		WHERE `+visible+`
-		  AND $1::text[] <@ string_to_array(lower(regexp_replace(s.area, '[,;/]', ' ', 'g')), ' ')
-		  AND a.wifi >= $2
-		  AND ($3 = 0 OR a.noise <= $3)
-		  AND (NOT $4 OR a.power)
-		  AND (NOT $5 OR NOT a.time_limit)
-		  AND (NOT $6 OR a.step_free)
-		  AND (NOT $7 OR a.accessible_toilet)
-		  AND (NOT $8 OR a.quiet_space)
+		  AND $3::text[] <@ string_to_array(lower(regexp_replace(s.area, '[,;/]', ' ', 'g')), ' ')
+		  AND a.wifi >= $4
+		  AND ($5 = 0 OR a.noise <= $5)
+		  AND (NOT $6 OR a.power)
+		  AND (NOT $7 OR NOT a.time_limit)
+		  AND (NOT $8 OR a.step_free)
+		  AND (NOT $9 OR a.accessible_toilet)
+		  AND (NOT $10 OR a.quiet_space)
 		ORDER BY s.name, s.id
-		LIMIT $9 OFFSET $10`,
-		words, f.MinWifi, f.MaxNoise, f.Power, f.NoTimeLimit, f.StepFree, f.AccessibleToilet, f.Quiet, PageSize+1, offset)
+		LIMIT $11 OFFSET $12`,
+		Anonymous.UserID, Anonymous.Moderator, words, f.MinWifi, f.MaxNoise, f.Power, f.NoTimeLimit, f.StepFree, f.AccessibleToilet, f.Quiet, PageSize+1, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -114,11 +131,11 @@ func ListApproved(ctx context.Context, db *pgxpool.Pool) ([]Spot, error) {
 	return page, err
 }
 
-// Get returns a visible spot, or ErrSpotNotFound.
-func Get(ctx context.Context, db *pgxpool.Pool, id int64) (Spot, error) {
+// Get returns a spot the viewer may see, or ErrSpotNotFound.
+func Get(ctx context.Context, db *pgxpool.Pool, viewer Viewer, id int64) (Spot, error) {
 	rows, err := db.Query(ctx, `SELECT `+spotColumns+`
 		FROM spots s JOIN spot_attributes a ON a.spot_id = s.id
-		WHERE s.id = $1 AND `+visible, id)
+		WHERE s.id = $3 AND `+visible, viewer.UserID, viewer.Moderator, id)
 	if err != nil {
 		return Spot{}, err
 	}
@@ -129,7 +146,9 @@ func Get(ctx context.Context, db *pgxpool.Pool, id int64) (Spot, error) {
 	return spot, err
 }
 
-// VisibleReports returns a spot's reports that moderators haven't hidden, newest first.
+// VisibleReports returns a spot's reports that moderators haven't hidden,
+// newest first: every one, as history; only each member's latest votes
+// (the spot_attributes view).
 func VisibleReports(ctx context.Context, db *pgxpool.Pool, spotID int64) ([]Report, error) {
 	rows, err := db.Query(ctx, `SELECT id, note, created_at, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space
 		FROM reports WHERE spot_id = $1 AND NOT hidden ORDER BY created_at DESC, id DESC`, spotID)
@@ -137,4 +156,69 @@ func VisibleReports(ctx context.Context, db *pgxpool.Pool, spotID int64) ([]Repo
 		return nil, err
 	}
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Report])
+}
+
+// NewSpot is what a member fills in to add a spot. Attributes are declared
+// until the first report arrives.
+type NewSpot struct {
+	Name, Kind, Area, Address, OpeningHours string
+	Attributes
+}
+
+// Kinds a spot can be, as the database constraint lists them.
+var Kinds = []string{"cafe", "library", "coworking", "hotel_lobby", "other"}
+
+// Add stores a pending spot for the author and returns its id (AC14).
+func Add(ctx context.Context, db *pgxpool.Pool, authorID int64, n NewSpot) (int64, error) {
+	var id int64
+	err := db.QueryRow(ctx, `INSERT INTO spots (name, kind, area, address, opening_hours, created_by,
+			wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+		n.Name, n.Kind, n.Area, n.Address, n.OpeningHours, authorID,
+		n.Wifi, n.Noise, n.Power, n.TimeLimit, n.StepFree, n.AccessibleToilet, n.Quiet).Scan(&id)
+	return id, constraint(err)
+}
+
+// AddReport stores a member's report on a public spot (AC16). What the public
+// can see is the public_spots view (migration 0005), nowhere else.
+func AddReport(ctx context.Context, db *pgxpool.Pool, authorID, spotID int64, a Attributes, note string) error {
+	tag, err := db.Exec(ctx, `INSERT INTO reports (spot_id, author_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note)
+		SELECT s.id, $1, $3, $4, $5, $6, $7, $8, $9, $10 FROM public_spots s WHERE s.id = $2`,
+		authorID, spotID, a.Wifi, a.Noise, a.Power, a.TimeLimit, a.StepFree, a.AccessibleToilet, a.Quiet, note)
+	if err != nil {
+		return constraint(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSpotNotFound
+	}
+	return nil
+}
+
+// Mine lists the spots a member added, newest first, in any state.
+func Mine(ctx context.Context, db *pgxpool.Pool, userID int64) ([]Spot, error) {
+	rows, err := db.Query(ctx, `SELECT `+spotColumns+`
+		FROM spots s JOIN spot_attributes a ON a.spot_id = s.id
+		WHERE s.created_by = $1 ORDER BY s.created_at DESC, s.id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[Spot])
+}
+
+// constraint turns a check-constraint violation (SQLSTATE 23514) into
+// ErrInvalid; the handler validated first, so this is the backstop.
+func constraint(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23514" {
+		return fmt.Errorf("%w: %s", ErrInvalid, pgErr.ConstraintName)
+	}
+	return err
+}
+
+// ReportVisible reports whether the public can see a report (the
+// public_reports view), and so may flag it.
+func ReportVisible(ctx context.Context, db *pgxpool.Pool, reportID int64) (bool, error) {
+	var ok bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM public_reports WHERE id = $1)`, reportID).Scan(&ok)
+	return ok, err
 }

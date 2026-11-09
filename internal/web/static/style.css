@@ -49,3 +49,10 @@ input[type="email"], input[type="password"] { padding: 0.5rem; border: 1px solid
 .notice { border-left: 4px solid var(--accent); padding: 0.5rem 1rem; background: #eef3ff; }
 .actions { list-style: none; padding: 0; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
 .pages { display: flex; gap: 1.5rem; margin-top: 1.5rem; }
+.wide { max-width: 40rem; }
+.radios { display: flex; gap: 1rem; flex-wrap: wrap; }
+.radios label { display: flex; gap: 0.4rem; align-items: center; }
+input[type="radio"] { width: 1.5rem; height: 1.5rem; min-height: 0; }
+input:not([type="checkbox"]):not([type="radio"]), textarea { padding: 0.5rem; border: 1px solid var(--muted); border-radius: 0.25rem; width: 100%; font: inherit; }
+.small { font-size: 0.9rem; }
+.spots h3 { margin: 0 0 0.25rem; font-size: 1.125rem; overflow-wrap: anywhere; }

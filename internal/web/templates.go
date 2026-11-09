@@ -8,6 +8,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/rydncn/workspots/internal/spots"
 )
 
 var funcs = template.FuncMap{
@@ -24,6 +26,11 @@ var funcs = template.FuncMap{
 	"dict": func(data map[string]any, field string) map[string]any {
 		return map[string]any{"Errors": data["Errors"], "Field": field}
 	},
+	// attrs pairs a page's data with the attributes the rating fields show.
+	"attrs": func(data map[string]any, a spots.Attributes) map[string]any {
+		return map[string]any{"Errors": data["Errors"], "A": a, "WifiLabels": spots.WifiLabels, "NoiseLabels": spots.NoiseLabels}
+	},
+	"int": func(v int16) int { return int(v) },
 }
 
 // parseTemplates builds one template set per page, each sharing layout.html.
@@ -35,7 +42,7 @@ func parseTemplates() map[string]*template.Template {
 		if name == "layout.html" || strings.HasPrefix(name, "_") {
 			continue
 		}
-		out[name] = template.Must(template.New(name).Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/_search_form.html", "templates/_form_errors.html", p))
+		out[name] = template.Must(template.New(name).Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/_search_form.html", "templates/_form_errors.html", "templates/_attributes_fields.html", p))
 	}
 	return out
 }

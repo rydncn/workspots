@@ -34,7 +34,7 @@ One Go binary, `cmd/workspots`, serving server-rendered HTML over `net/http`, ta
 - `migrate`: applies `migrations/*.sql` in order, recording each in `schema_migrations`.
 - `config`: reads the environment; in production mode refuses to start with a missing or development value.
 
-Data: `users` (id, email, password_hash, role, created_at), `sessions` (hashed token, user, expires), `spots` (name, kind, area, address, opening hours, status pending/approved/rejected, created_by nullable), `reports` (spot, author, ratings per attribute, note, hidden flag, created_at), `problem_reports` (target spot or report, reporter, text, status). Spot attributes shown on a spot are the medians of its visible reports, plus the attributes the adder declared until the first report arrives.
+Data: `users` (id, email, password_hash, role, created_at), `sessions` (hashed token, user, expires), `spots` (name, kind, area, address, opening hours, status pending/approved/rejected, created_by nullable), `reports` (spot, author, ratings per attribute, note, hidden flag, created_at), `problem_reports` (target spot or report, reporter, text, status). Spot attributes shown on a spot are the medians (majorities for yes/no) of its visible reports, one vote per member per spot (a member's latest visible report; earlier ones stay on the page as history), plus the attributes the adder declared until the first report arrives. Whether the public can see a spot or a report is defined once, in the `public_spots` and `public_reports` views.
 
 Errors: every error response is an RFC 9457 problem. A request whose `Accept` prefers `text/html` gets the same problem rendered as an HTML page with the same fields; anything else gets `application/problem+json`. Both carry the correlation ID.
 

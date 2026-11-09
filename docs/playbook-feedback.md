@@ -37,6 +37,12 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 23. **The CI template's npm version check fails on the Node the template itself selects.** `setup-node` with Node 22 (the current LTS) ships npm 10.9, so the template's "npm supply-chain settings take effect" step fails on its first run, which is the step working as designed but a trap for every new project. The template should add `npm install -g npm@11` (pinned) before the check, or say which Node major carries npm 11.10. Found by the e2e job's first full run here.
 
+24. **`api.md`'s cookie rules meet Go's test tooling.** `Secure` cookies only round-trip through `httptest.NewTLSServer`, and `httptest.Server.Client()` returns one shared client, so "a browser per user" needs a client per browser or every user is the same person. Neither is in the template, and both cost an hour here. A Go note on the "How these are checked" section would save it.
+
+25. **The whole-codebase review earned its place again, exactly as the README says.** After three slices it found twelve things three fresh-context reviews had passed, four of them must-fix, and four of those only visible with the slices read together: a cookie newly set on responses an earlier slice had made publicly cacheable, a rule the documents stated more strictly than the code, a route two documents promised that no slice had built, and a test harness about to collide with a new rate limit. Cost: one subagent run of about 205k tokens, the largest single review so far.
+
+26. **A human review after both automated layers still found three real defects in slice 3.** An open redirect through a tab in the return path (browsers strip tabs; the check didn't), a check-then-count rate limiter that concurrent attempts walk through, and uncapped concurrent argon2id. Neither review brief named browser URL normalisation, concurrency or resource exhaustion, and neither reviewer went there unprompted. The playbook's review cadence could add a short list of question types the briefs must include for an auth change (what does the browser do to this value, what happens when twenty of these arrive at once, what does one of these cost), or route auth slices to the security audit earlier than "before the final review".
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

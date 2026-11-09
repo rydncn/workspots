@@ -67,6 +67,49 @@ How context is measured: the playbook's context-budget hook reads the transcript
     10. SHOULD Out-of-range filter values were applied but echoed as "Any"; the form now shows the clamped value, with a test. Leftover template text in `.npmrc` removed.
 - Gates added and broken once: axe (image without alt → `image-alt`), the 320-pixel horizontal-scroll check (unbroken word), the end-to-end assertions (locator failure seen). lockfile-lint ran clean locally. Not provable locally: `npm audit signatures` (the registry's attestation download is blocked by the proxy); proven in CI.
 
+### Slice 3: accounts (PR #5)
+
+- Criteria delivered: AC7, AC8, AC9, AC10, AC12, AC17, AC26, and the goroutine clause of AC25. Whole-codebase review follows this slice.
+- Sessions: 1, still the first session, continued at Ryan's request; the harness showed roughly 470k tokens by the end of the slice. Wall clock: about 2 hours to the draft PR.
+- Defects by layer:
+  - tests (test-first): 4. A Go template can't range over an untyped nil, so every form page was a 500 until `Errors` defaulted to a typed nil slice; the form-errors partial wasn't in the parse list; the CSRF middleware ran before route matching and turned a `POST /` into a 403 instead of the 405 AC23 requires; and the test browsers all shared one cookie jar (`httptest.Server.Client()` returns one client), which made two tests pass for the wrong reason and two fail mysteriously until each browser got its own client.
+  - tests (unit): 0 beyond the above; the argon2id round trip and the length rules passed first time.
+  - end-to-end: 2. The nav's new links changed the keyboard tab order the browse journey asserted; a "Sign up" locator matched the nav and the page body.
+  - gate breaks: CSRF comparison disabled → AC17's token-based refusals fail (the first attempt at this break didn't compile, so proved nothing; redone); sign-in limit raised to 500 → AC12's "sixth attempt" fails; other sessions no longer ended → AC10 fails.
+  - hooks: 0.
+  - CI, draft run: 0.
+  - fresh-context review (subagent, about 142k tokens): 8 findings, none must-fix, all fixed with a test where one applies and seen failing first.
+    1. Rate-limit keys were raw addresses and IPs held for the process lifetime; now hashed and dropped when their window empties (unit test).
+    2. Expired sessions were filtered, never deleted, so the 30-day retention was a read-time rule; now deleted at the next sign-in (AC8 test extended).
+    3. The validation problem's `errors` list had `Field`/`Message` keys, not the rule's `field`/`message`; JSON tags added.
+    4. The JSON-validation assertion accepted 403 or 422 and could not fail; rewritten to fetch the token first and assert the list.
+    5. Two simultaneous sign-ups for one address raced to the unique index and the loser got a 500; SQLSTATE 23505 is now "already registered".
+    6. The mail goroutine had no recover; a panicking provider would have taken the process down.
+    7. Rule contradictions: validation errors were mapped on the form rather than in `domainProblems` (rule text amended to say so); password change was limited per account only, now per IP too; `__Host-csrf` flags were asserted nowhere, now in AC8; the current password is checked before the new one is validated.
+    8. The untrusted-proxy branch of `clientIP` was never observed; a test now shows a forged `X-Forwarded-For` cannot escape the per-IP limit.
+  - whole-codebase review (subagent briefed from `CLAUDE.md`, the design, the rules and the ADRs, no diff; about 205k tokens): 12 findings, 4 must-fix, all fixed, the behavioural ones test-first.
+    1. MUST `/static/` responses were `Cache-Control: public` and carried the `__Host-csrf` Set-Cookie, so a shared cache could hand one CSRF secret to every browser: login CSRF, the case AC17 exists for. Static and health responses now skip the session middleware; a test asserts no Set-Cookie.
+    2. MUST The HTML problem page omitted `type`, contradicting AC23 and `api.md`, and the test didn't check it. Rendered and asserted.
+    3. MUST The design and `CLAUDE.md` said every `POST` must carry a same-origin `Origin` or `Sec-Fetch-Site`; the code accepted a `POST` with neither. Now refused, with a test; the design's "same-site" wording corrected to "same-origin".
+    4. MUST `GET /healthz` was documented in `api.md` and ADR 0008 and did not exist. Added: 200 "ok", 503 problem when the database is down, `no-store`; tested both ways.
+    5. The e2e suite would hit the in-memory sign-up limit as soon as slice 4 added a journey; users are now seeded per project and only the sign-up journey signs up.
+    6. AC12's password-change limit and AC6's author/moderator exception were named but not exercised; the first is now tested, the second recorded in the design as owed to slices 4 and 5.
+    7. `TestApplyIsIdempotentAndOrdered` never applied twice; it does now (and fails when `ON CONFLICT DO NOTHING` is removed).
+    8. The design claimed a faked clock that doesn't exist; wording corrected.
+    9. `CLAUDE.md`'s architecture omitted `internal/mail` and the `sessions`/`csrf` middleware; updated.
+    10. `net/http/httptest` was imported by the production binary for the 405 probe; replaced with a ten-line header-capturing writer.
+    11. Retention table versus code: expired sessions are now also deleted at sign-out and indexed by expiry, and the table says when deletion happens and that rate-limit keys are pruned on use.
+    12. Copy: the check-email page told existing account holders to use "the password you chose"; the CODEOWNERS header still said "copy to". Both fixed.
+  - Per-slice reviews had passed all twelve; four only show when the slices are read together (static caching versus the new cookie, the document-versus-code Origin rule, the documented health route, the e2e harness versus the new limits).
+  - outside review by Ryan (after both automated reviews): 3 defects missed by the tests, the fresh-context review and the whole-codebase review, plus 2 design points. All fixed test-first.
+    1. MISSED Open redirect: `safeNext` allowed a tab, and browsers strip tabs from URLs, so `/sign-in?next=/%09/evil.example` sent the visitor off-site after sign-in (proven with a Go server and Chromium). Now parsed: no scheme, host or user, a single leading slash, and every control character and backslash refused; twelve-case unit test plus a real sign-in with the tab.
+    2. MISSED Rate-limit race: the limit was checked before `Authenticate` and counted after it failed, so concurrent attempts all passed. Now one atomic check-and-count before the hash, refunded on success, for sign-in, sign-up and password change; a test fires twenty wrong passwords at once and sees exactly five checked and fifteen refused.
+    3. MISSED Concurrent argon2id was uncapped (19 MiB each). Hashing now runs behind a semaphore of `runtime.NumCPU()` slots; a request waits for a slot until its context ends, recorded in ADR 0012; a unit test shows one slot serialises eight hashes and a cancelled context does not wait.
+    4. Spot visibility was decided in two queries (`status = 'approved'` in both `Search` and `Get`), the pattern that diverges when slices 4 and 5 add the author and moderator exceptions; now one `visible` constant that both queries use.
+    5. Search had no limit; now fifty a page with next and previous links that keep the search, tested with fifty-one spots.
+  - Why the automated layers missed the first three: both reviewers read `safeNext` as a path check and did not think about what browsers do to a URL before following it; both saw the limiter and reasoned about one request at a time; neither asked what a burst of sign-ins costs in memory. All three are concurrency or browser-behaviour questions, which neither brief asked for by name.
+  - own process: 1. A staticcheck failure in a chained shell command stopped the documentation edits but not the commit that followed, so one commit went out with a lint failure and without its records; fixed in the next.
+
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)
 - Criteria delivered: AC…

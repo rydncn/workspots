@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rydncn/workspots/internal/config"
+	"github.com/rydncn/workspots/internal/mail"
 	"github.com/rydncn/workspots/internal/migrate"
 	"github.com/rydncn/workspots/internal/obs"
 	"github.com/rydncn/workspots/internal/web"
@@ -73,9 +74,15 @@ func run(args []string, getenv func(string) string) error {
 	}
 	defer pool.Close()
 
+	// Mail (ADR 0009): the dev outbox on stderr, separate from the structured
+	// log on stdout; in production, until a provider is chosen, a log of the kind.
+	var sender mail.Sender = &mail.Outbox{W: os.Stderr}
+	if cfg.Production() {
+		sender = mail.Logging{Logger: log}
+	}
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           web.New(web.Deps{DB: pool, Config: cfg, Logger: log}),
+		Handler:           web.New(web.Deps{DB: pool, Config: cfg, Logger: log, Mail: sender}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -11,6 +11,15 @@
 <header>
   <nav aria-label="Main">
     <a href="/" class="brand">Workspots</a>
+    <ul class="nav-links">
+    {{if .User}}
+      <li><a href="/account">Account</a></li>
+      <li><form method="post" action="/sign-out"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="link">Sign out</button></form></li>
+    {{else}}
+      <li><a href="/sign-in">Sign in</a></li>
+      <li><a href="/sign-up">Sign up</a></li>
+    {{end}}
+    </ul>
   </nav>
 </header>
 <main id="main" tabindex="-1">

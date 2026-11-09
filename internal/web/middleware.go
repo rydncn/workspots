@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"time"
 
@@ -47,6 +46,16 @@ func securityHeaders(production bool) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// headerProbe captures what the mux's own 404/405 handler would have sent.
+type headerProbe struct {
+	header http.Header
+	status int
+}
+
+func (p *headerProbe) Header() http.Header         { return p.header }
+func (p *headerProbe) WriteHeader(code int)        { p.status = code }
+func (p *headerProbe) Write(b []byte) (int, error) { return len(b), nil }
 
 // statusWriter records the status for the request log.
 type statusWriter struct {
@@ -96,18 +105,20 @@ func (s *server) recover(next http.Handler) http.Handler {
 }
 
 // routeErrors replaces the mux's own plain-text 404 and 405 with problems,
-// keeping the Allow header on a 405.
+// keeping the Allow header on a 405. Matched routes go through the CSRF check
+// and then the mux, so path values are bound.
 func (s *server) routeErrors(mux *http.ServeMux) http.Handler {
+	dispatch := s.csrf(mux)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h, pattern := mux.Handler(r)
 		if pattern != "" {
-			mux.ServeHTTP(w, r) // through the mux, so path values are bound
+			dispatch.ServeHTTP(w, r)
 			return
 		}
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, r)
-		if rec.Code == http.StatusMethodNotAllowed {
-			w.Header().Set("Allow", rec.Header().Get("Allow"))
+		probe := &headerProbe{header: http.Header{}}
+		h.ServeHTTP(probe, r)
+		if probe.status == http.StatusMethodNotAllowed {
+			w.Header().Set("Allow", probe.header.Get("Allow"))
 			s.writeProblem(w, r, methodNotAllowed)
 			return
 		}

@@ -5,5 +5,6 @@
 <section aria-labelledby="results">
 <h2 id="results" class="section">{{if .Spots}}{{len .Spots}} matching {{if eq (len .Spots) 1}}spot{{else}}spots{{end}}{{else}}Results{{end}}</h2>
 {{if .Spots}}{{template "spot_list" .Spots}}{{else}}<p>No spots match. Try a nearby area or fewer filters.</p>{{end}}
+{{if or .Next .Prev}}<nav aria-label="Pages" class="pages">{{if .Prev}}<a href="{{.Prev}}" rel="prev">Previous page</a>{{end}}{{if .Next}}<a href="{{.Next}}" rel="next">Next page</a>{{end}}</nav>{{end}}
 </section>
 {{end}}

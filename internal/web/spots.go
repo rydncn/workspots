@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -13,13 +14,33 @@ type searchForm struct {
 	Area                                                  string
 	Wifi, Noise                                           string
 	Power, NoTimeLimit, StepFree, AccessibleToilet, Quiet bool
+	Page                                                  int
 }
 
 func (f searchForm) filter() spots.Filter {
 	wifi, _ := strconv.Atoi(f.Wifi)
 	noise, _ := strconv.Atoi(f.Noise)
 	return spots.Filter{Area: f.Area, MinWifi: clamp(wifi, 0, 4), MaxNoise: clamp(noise, 0, 3),
-		Power: f.Power, NoTimeLimit: f.NoTimeLimit, StepFree: f.StepFree, AccessibleToilet: f.AccessibleToilet, Quiet: f.Quiet}
+		Power: f.Power, NoTimeLimit: f.NoTimeLimit, StepFree: f.StepFree, AccessibleToilet: f.AccessibleToilet, Quiet: f.Quiet, Page: f.Page}
+}
+
+// pageURL is the search URL for page n with the same filters (no "page=1").
+func (f searchForm) pageURL(n int) string {
+	q := url.Values{}
+	q.Set("area", f.Area)
+	for name, on := range map[string]bool{"power": f.Power, "no_time_limit": f.NoTimeLimit, "step_free": f.StepFree, "accessible_toilet": f.AccessibleToilet, "quiet_space": f.Quiet} {
+		if on {
+			q.Set(name, "1")
+		}
+	}
+	if f.Wifi != "" {
+		q.Set("wifi", f.Wifi)
+	}
+	if f.Noise != "" {
+		q.Set("noise", f.Noise)
+	}
+	q.Set("page", strconv.Itoa(n))
+	return "/search?" + q.Encode()
 }
 
 func clamp(v, lo, hi int) int16 {
@@ -43,19 +64,28 @@ func readSearch(r *http.Request) searchForm {
 		}
 		return strconv.Itoa(min(v, hi))
 	}
+	page, _ := strconv.Atoi(q.Get("page"))
 	return searchForm{Area: area, Wifi: scale("wifi", 4), Noise: scale("noise", 3), Power: on("power"),
-		NoTimeLimit: on("no_time_limit"), StepFree: on("step_free"), AccessibleToilet: on("accessible_toilet"), Quiet: on("quiet_space")}
+		NoTimeLimit: on("no_time_limit"), StepFree: on("step_free"), AccessibleToilet: on("accessible_toilet"), Quiet: on("quiet_space"),
+		Page: max(1, min(page, 100000))}
 }
 
 func (s *server) search(w http.ResponseWriter, r *http.Request) {
 	form := readSearch(r)
-	list, err := spots.Search(r.Context(), s.db, form.filter())
+	list, more, err := spots.Search(r.Context(), s.db, form.filter())
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	var next, prev string
+	if more {
+		next = form.pageURL(form.Page + 1)
+	}
+	if form.Page > 1 {
+		prev = form.pageURL(form.Page - 1)
+	}
 	s.render(w, r, http.StatusOK, "search.html", map[string]any{
-		"Form": form, "Spots": list, "WifiLabels": spots.WifiLabels, "NoiseLabels": spots.NoiseLabels})
+		"Form": form, "Spots": list, "Next": next, "Prev": prev, "WifiLabels": spots.WifiLabels, "NoiseLabels": spots.NoiseLabels})
 }
 
 func (s *server) spot(w http.ResponseWriter, r *http.Request) {

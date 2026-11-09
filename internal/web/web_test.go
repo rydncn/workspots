@@ -3,12 +3,15 @@ package web_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -18,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/rydncn/workspots/internal/config"
+	"github.com/rydncn/workspots/internal/mail"
 	"github.com/rydncn/workspots/internal/obs"
 	"github.com/rydncn/workspots/internal/testdb"
 	"github.com/rydncn/workspots/internal/web"
@@ -45,10 +49,18 @@ type app struct {
 	admin *pgx.Conn // migrate role, for arranging data
 	pool  *pgxpool.Pool
 	logs  *syncBuffer
+	mail  *mail.Recorder
 }
 
-// newApp starts the real server over HTTP against its own migrated database.
+// newApp starts the real server over HTTP against its own migrated database,
+// trusting 127.0.0.1 as a proxy so tests can vary the client IP.
 func newApp(t *testing.T) *app {
+	t.Helper()
+	return newAppWith(t, map[string]string{"TRUSTED_PROXY": "127.0.0.1"})
+}
+
+// newAppWith starts the server with extra environment values.
+func newAppWith(t *testing.T, extra map[string]string) *app {
 	t.Helper()
 	adminURL, appURL := testdb.New(t)
 	ctx := context.Background()
@@ -68,15 +80,117 @@ func newApp(t *testing.T) *app {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	cfg, err := config.Load(func(k string) string { return map[string]string{"DATABASE_URL": appURL}[k] })
+	env := map[string]string{"DATABASE_URL": appURL}
+	for k, v := range extra {
+		env[k] = v
+	}
+	cfg, err := config.Load(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := web.New(web.Deps{DB: pool, Config: cfg, Logger: obs.NewLogger(logs, slog.LevelDebug)})
-	srv := httptest.NewServer(h)
+	rec := &mail.Recorder{}
+	h := web.New(web.Deps{DB: pool, Config: cfg, Logger: obs.NewLogger(logs, slog.LevelDebug), Mail: rec})
+	srv := httptest.NewTLSServer(h) // TLS, so Secure cookies round-trip
 	t.Cleanup(srv.Close)
-	return &app{Server: srv, admin: admin, pool: pool, logs: logs}
+	return &app{Server: srv, admin: admin, pool: pool, logs: logs, mail: rec}
 }
+
+// browser is one person's cookie jar.
+type browser struct {
+	t  *testing.T
+	a  *app
+	c  *http.Client
+	ip string
+}
+
+func (a *app) browser(t *testing.T) *browser {
+	t.Helper()
+	jar, _ := cookiejar.New(nil)
+	// A new client per browser: Server.Client() hands back one shared client,
+	// and a shared jar would make every browser the same person.
+	c := &http.Client{Transport: a.Client().Transport, Jar: jar,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &browser{t: t, a: a, c: c}
+}
+
+func (b *browser) do(req *http.Request) (*http.Response, string) {
+	b.t.Helper()
+	if b.ip != "" {
+		req.Header.Set("X-Forwarded-For", b.ip)
+	}
+	if req.Header.Get("Accept") == "" { // as a browser does
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	}
+	res, err := b.c.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	return res, string(body)
+}
+
+func (b *browser) get(path string) (*http.Response, string) {
+	b.t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, b.a.URL+path, nil)
+	return b.do(req)
+}
+
+var csrfField = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
+
+// post fetches the form page to pick up its CSRF token, then posts the form
+// as a browser would, with a same-origin Origin header.
+func (b *browser) post(formPath, action string, form url.Values) (*http.Response, string) {
+	b.t.Helper()
+	_, page := b.get(formPath)
+	m := csrfField.FindStringSubmatch(page)
+	if m == nil {
+		b.t.Fatalf("no CSRF token on %s", formPath)
+	}
+	form.Set("csrf", m[1])
+	return b.postRaw(action, form, "Origin", b.a.URL)
+}
+
+func (b *browser) postRaw(action string, form url.Values, headers ...string) (*http.Response, string) {
+	b.t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, b.a.URL+action, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
+	}
+	return b.do(req)
+}
+
+func (b *browser) cookie(name string) *http.Cookie {
+	u, _ := url.Parse(b.a.URL)
+	for _, c := range b.c.Jar.Cookies(u) {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
+func (b *browser) signUp(email, password string) {
+	b.t.Helper()
+	res, _ := b.post("/sign-up", "/sign-up", url.Values{"email": {email}, "password": {password}})
+	if res.StatusCode != 200 {
+		b.t.Fatalf("sign-up: %d", res.StatusCode)
+	}
+}
+
+func (b *browser) signIn(email, password string) (*http.Response, string) {
+	b.t.Helper()
+	return b.post("/sign-in", "/sign-in", url.Values{"email": {email}, "password": {password}})
+}
+
+func unique(prefix string) string {
+	var r [4]byte
+	_, _ = rand.Read(r[:])
+	return fmt.Sprintf("%s-%x@example.test", prefix, r)
+}
+
+const goodPassword = "correct horse battery"
 
 func (a *app) addSpot(t *testing.T, name, status string) {
 	t.Helper()
@@ -172,8 +286,8 @@ func TestAC23EveryErrorIsAProblem(t *testing.T) {
 		if res.StatusCode != 404 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
 			t.Fatalf("got %d %s", res.StatusCode, res.Header.Get("Content-Type"))
 		}
-		if !strings.Contains(body, "<title>") || !strings.Contains(body, res.Header.Get("X-Correlation-Id")) || !strings.Contains(body, "404") {
-			t.Errorf("HTML problem page lacks title, status or correlation id: %q", body)
+		if !strings.Contains(body, "<title>") || !strings.Contains(body, res.Header.Get("X-Correlation-Id")) || !strings.Contains(body, "404") || !strings.Contains(body, "/problems/not-found") {
+			t.Errorf("HTML problem page lacks title, status, type or correlation id: %q", body)
 		}
 	})
 	t.Run("missing static file and directory listing", func(t *testing.T) {
@@ -184,8 +298,14 @@ func TestAC23EveryErrorIsAProblem(t *testing.T) {
 				t.Errorf("%s: got %d %+v", path, res.StatusCode, p)
 			}
 		}
-		if res, _ := get(t, a, "/static/style.css"); res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") {
+		res, _ := get(t, a, "/static/style.css")
+		if res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") {
 			t.Errorf("stylesheet: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+		}
+		// A publicly cacheable response must never carry a Set-Cookie: a shared
+		// cache would hand one CSRF secret to every browser.
+		if len(res.Header.Values("Set-Cookie")) != 0 {
+			t.Errorf("static file set a cookie: %v", res.Header.Values("Set-Cookie"))
 		}
 	})
 	t.Run("wrong method", func(t *testing.T) {
@@ -193,6 +313,21 @@ func TestAC23EveryErrorIsAProblem(t *testing.T) {
 		p := readProblem(t, res, body)
 		if res.StatusCode != 405 || p.Type != "/problems/method-not-allowed" || !strings.Contains(res.Header.Get("Allow"), "GET") {
 			t.Errorf("got %d %+v allow=%q", res.StatusCode, p, res.Header.Get("Allow"))
+		}
+	})
+	t.Run("health", func(t *testing.T) {
+		res, body := get(t, a, "/healthz")
+		if res.StatusCode != 200 || !strings.Contains(body, "ok") {
+			t.Errorf("healthz: %d %q", res.StatusCode, body)
+		}
+		if res.Header.Get("Cache-Control") != "no-store" {
+			t.Errorf("healthz cacheable: %q", res.Header.Get("Cache-Control"))
+		}
+		b := newApp(t)
+		b.pool.Close()
+		res, body = get(t, b, "/healthz", "Accept", "application/json")
+		if p := readProblem(t, res, body); res.StatusCode != 503 || p.Type != "/problems/unavailable" {
+			t.Errorf("healthz with the database down: %d %+v", res.StatusCode, p)
 		}
 	})
 	t.Run("unexpected failure", func(t *testing.T) {
@@ -377,6 +512,25 @@ func TestAC2SearchByArea(t *testing.T) {
 	// Out-of-range filter values are clamped and the form shows what was applied.
 	_, body = get(t, a, "/search?area=leeds&wifi=9")
 	has(t, body, `<option value="4" selected>`)
+}
+
+// Search pages: fifty spots a page, with links to the next and previous page
+// that keep the search.
+func TestSearchIsPaged(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	for i := 0; i < 51; i++ {
+		a.addSpotWith(t, fmt.Sprintf("Spot %03d", i), "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
+	}
+	_, body := get(t, a, "/search?area=leeds&power=0")
+	has(t, body, "Spot 000", "Spot 049", `href="/search?area=leeds&amp;page=2"`)
+	lacks(t, body, "Spot 050")
+	_, body = get(t, a, "/search?area=leeds&page=2")
+	has(t, body, "Spot 050", `href="/search?area=leeds&amp;page=1"`)
+	lacks(t, body, "Spot 049", "page=3")
+	if res, _ := get(t, a, "/search?page=999999"); res.StatusCode != 200 {
+		t.Errorf("far page: %d", res.StatusCode)
+	}
 }
 
 // AC3: filters combine with AND, on the effective attributes (reports over declared).

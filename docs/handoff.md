@@ -1,20 +1,21 @@
 # Handoff
 
-**Updated:** 2026-11-09, still session 1 (design, slice 1, slice 2).
+**Updated:** 2026-11-09, end of session 1 (design, slices 1 to 3). The session ran far past the context budget at Ryan's request; the next one must be fresh.
 
 ## Where the work is
 
-- Slice 1 merged (PR #1). Slice 2 (browse and search, AC2 to AC6, the AC28/AC29 harness) is on PR #4 from `slice-2-browse-and-search`: Go acceptance tests, `e2e/` with Playwright and axe, the e2e CI job and the npm supply-chain steps. See the PR description for what was observed and broken.
-- `docs/trial-log.md` has slices 0 to 2; `docs/playbook-feedback.md` has 22 items. Commit the log before planting breaks or branching for anything disposable.
-- `scripts/dev-db.sh` first in every session; then `go test ./...` and `cd e2e && npm ci && npm test` work with no further setup.
+- Slice 1 merged (PR #1). Slice 2 is PR #4 (ready, green, unmerged). Slice 3 (accounts) is PR #5, stacked on #4, ready and green, with its fresh-context review, the whole-codebase review after slice 3 and Ryan's outside review (open redirect via a tab, rate-limit race, uncapped argon2id, one visibility rule, search paging) all fixed and recorded on the PR and in the trial log. When #4 merges, retarget #5 to `main`.
+- Slice 4 note: `spots.visible` is the one place that says which spots a visitor may see; extend it (viewer id for the author, role for moderators) rather than adding conditions to a query. Review briefs for anything touching auth should ask by name: what does the browser do to this value, what happens when twenty of these arrive at once, what does one of these cost.
+- `docs/trial-log.md` has slices 0 to 3; `docs/playbook-feedback.md` has 25 items. Commit the log before planting breaks or branching for anything disposable.
+- `scripts/dev-db.sh` first in every session; then `go test ./...` and `cd e2e && npm ci && npm test` work with no further setup. e2e signs in as seeded members (`e2e/seed.sql`); only one journey signs up, because sign-up is rate limited per IP.
 
-## Next: slice 3, accounts
+## Next: slice 4, contribute
 
-Criteria: AC7, AC8, AC9, AC10, AC12, AC17, AC26, and the goroutine clause of AC25 (the welcome mail runs in a goroutine with a context derived from the request). Whole-codebase review after this slice (CLAUDE.md "Workflow").
+Criteria: AC13, AC14, AC15, AC16, AC22, plus AC6's author exception (a pending spot is visible to its author, marked awaiting approval).
 
-What it needs: migration 0003 with `users` (id, email unique case-insensitively, password_hash, role member/moderator/admin, created_at), `sessions` (sha256 of the token, user_id, created_at, expires_at), and the `reports.author_id` foreign key. `internal/accounts`: sign-up (12 to 1,024 bytes, argon2id via `golang.org/x/crypto/argon2`, ADR 0012, one new module), sign-in with the same message for wrong password and unknown address, session create/rotate/end, password change ending other sessions, the dev mail outbox (`internal/mail`, ADR 0009: a `Sender` interface, a dev outbox writing plain text to its own stream, a recording fake for tests). `internal/web`: sign-up, sign-in, sign-out, account and change-password pages and handlers; session middleware (`__Host-session`, Secure, HttpOnly, SameSite=Lax); CSRF as designed (`__Host-csrf` secret cookie, HMAC of the session ID or `anonymous`, rotated at sign-in, plus Origin/Sec-Fetch-Site on every POST); rate limits in memory per address and per IP (AC12) using `TRUSTED_PROXY` for the IP; the no-personal-data log test (AC26) capturing the structured log across sign-up, failed sign-in, a report note and a problem report (the last two can be seeded). Add the new pages and states (validation failure, signed in, signed out) to the e2e suite and axe; add a signed-in keyboard journey. Rule files: `.claude/rules/api.md` already describes all of this.
+What it needs: migration 0004 with `problem_reports` (target spot or report, reporter, reason, status open/resolved, created_at; reporter FK on delete cascade). `internal/spots`: `Add` (name, kind, area, address, opening hours, declared attributes; status pending; `created_by`), `AddReport` (ratings, note up to 500 characters, author), `Get` taking the viewer so an author sees their pending spot, "my spots" for the account page. `internal/moderation` (or in `spots`): `ReportProblem`. `internal/web`: `GET/POST /spots/new`, `GET/POST /spots/{id}/reports/new`, `GET/POST /spots/{id}/problems/new` and `/reports/{id}/problems/new`; `requireUser` already redirects GETs to sign-in with a safe `next` and refuses POSTs with a 401 problem (AC13); validation with the existing `invalid` helper and form-errors partial (AC15); the account page lists the member's spots with their status. Templates for the three forms with every field labelled; the report form's ratings as radio groups in fieldsets. e2e: the add-spot, report and problem journeys with axe in the validation-failure state and at 320 pixels, by keyboard once; use the seeded members. Gates: break the author-visibility check and the note-length check once.
 
-Then: fresh-context review, then the whole-codebase review (briefed from `CLAUDE.md` and `docs/design.md`, not a diff), trial log, feedback. Door: one-way (auth, migration, new dependency).
+Then: fresh-context review, trial log, feedback, PR description as the plan. Door: one-way (migration, authorisation of who may add and report).
 
 ## Environment notes
 

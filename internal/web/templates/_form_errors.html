@@ -1,0 +1,7 @@
+{{define "errors"}}{{if .Errors}}
+<div class="error" role="alert" id="errors">
+  <h2>There is a problem</h2>
+  <ul>{{range .Errors}}<li>{{if .Field}}<a href="#{{.Field}}">{{.Message}}</a>{{else}}{{.Message}}{{end}}</li>{{end}}</ul>
+</div>
+{{end}}{{end}}
+{{define "field_error"}}{{range .Errors}}{{if eq .Field $.Field}}<p class="field-error" id="{{.Field}}-error">{{.Message}}</p>{{end}}{{end}}{{end}}

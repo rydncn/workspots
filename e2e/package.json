@@ -1,0 +1,13 @@
+{
+  "name": "workspots-e2e",
+  "private": true,
+  "description": "End-to-end and accessibility tests for Workspots: Playwright and axe-core, JavaScript off.",
+  "scripts": {
+    "test": "playwright test --trace off",
+    "test:smoke": "playwright test --trace off --grep @smoke"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.63.0"
+  }
+}

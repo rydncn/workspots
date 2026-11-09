@@ -6,7 +6,21 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"strings"
+	"time"
 )
+
+var funcs = template.FuncMap{
+	"date": func(t time.Time) string { return t.Format("2 January 2006") },
+	"iso":  func(t time.Time) string { return t.Format("2006-01-02") },
+	"yesno": func(b bool) string {
+		if b {
+			return "Yes"
+		}
+		return "No"
+	},
+	"kind": func(k string) string { return strings.ReplaceAll(k, "_", " ") },
+}
 
 // parseTemplates builds one template set per page, each sharing layout.html.
 func parseTemplates() map[string]*template.Template {
@@ -14,10 +28,10 @@ func parseTemplates() map[string]*template.Template {
 	out := map[string]*template.Template{}
 	for _, p := range pages {
 		name := path.Base(p)
-		if name == "layout.html" {
+		if name == "layout.html" || strings.HasPrefix(name, "_") {
 			continue
 		}
-		out[name] = template.Must(template.ParseFS(templateFS, "templates/layout.html", p))
+		out[name] = template.Must(template.New(name).Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/_search_form.html", p))
 	}
 	return out
 }

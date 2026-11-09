@@ -42,6 +42,31 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - in CI (throwaway PR #2, second run): gofmt failed the checks job; the planted test failed the Tests job; the random token failed the security job. Not provable locally: govulncheck (database unreachable through the proxy; green in CI).
 - Branch protection on `main` after the first full run (ADR 0010): ruleset active, no bypass, pull request with code owner review, the three jobs required by name; recorded in a comment on PR #1.
 
+### Slice 2: browse and search (PR #4)
+
+- Criteria delivered: AC2, AC3, AC4, AC5, AC6; the AC28 and AC29 harness (axe, 320 pixels, keyboard, JavaScript off) over every page and state in this slice.
+- Sessions: 1, still the first session, continued at Ryan's request; the harness showed roughly 380k tokens by the end of the slice. Wall clock: about 1.5 hours to the draft PR.
+- Defects by layer:
+  - tests (test-first): 1. The AC30 "at least one application table" check was written as exactly one, so migration 0002 failed it; corrected to a minimum.
+  - end-to-end: 2. axe-core cannot run in a page with JavaScript disabled (the whole suite timed out on it); axe now runs on the page's HTML in a separate JavaScript-enabled context, which also covers POST result states later. A strict-mode locator matched two elements.
+  - gate breaks: 1 invalid proof. The first attempt to break the 320-pixel check used an inline `style` attribute, which the CSP blocks, so nothing was wide and the check "passed"; re-broken with a 300-character unbroken word, which it caught.
+  - own process: 1. `git checkout` of a template to undo a planted break reverted the slice's uncommitted changes to it as well; rewritten from the session. Lesson: commit before planting breaks, or plant them in a copy.
+  - hooks: 0.
+  - CI, draft run: 0 (the new npm lockfile, signature and audit steps passed first time).
+  - CI, first full run: 1. The e2e job failed at the template's npm version check: Node 22 on the runner ships npm 10.9, below the 11.10 that `min-release-age` needs. The security job had run `npm ci` with the same npm, so its release-age setting had silently not applied. Both jobs now install npm 11 first.
+  - fresh-context review (subagent, about 138k tokens): 10 findings, 2 must-fix, all verified and fixed test-first.
+    1. MUST A NUL byte in the `area` query reached Postgres and became a 500; the 80-character cut was by byte, so a multibyte character could be split. Now cleaned at the edge, with a test.
+    2. MUST The e2e setup polled the port without checking its own child was alive, so the suite could pass against a server it did not start. It now refuses an occupied port (proven by starting another server first) and fails if the child exits.
+    3. SHOULD The axe helper could audit an unstyled or empty document; it now asserts the stylesheet applied and that axe recorded passes.
+    4. SHOULD The keyboard test proved two focus stops; it now walks every control to the button, submits, tabs to a result and opens it, requiring the site's own 3px ring rather than the browser default.
+    5. SHOULD A failed setup orphaned its database; the state file is now written right after `CREATE DATABASE`.
+    6. SHOULD The area as displayed ("Leeds, LS6") found nothing; every typed word must now match, with a test.
+    7. SHOULD The view had write grants from the default privileges and ran with owner rights; now `security_invoker` and read-only, and `TestAC30` checks both for every view.
+    8. SHOULD Median and majority ties were accidental; now a rounded midpoint and a strict majority, commented.
+    9. SHOULD "Quiet" (noise) beside "Quiet space" was ambiguous to a screen reader, and the AC5 assertion on it near-tautological; now "Noise: Quiet", with a sharper assertion.
+    10. SHOULD Out-of-range filter values were applied but echoed as "Any"; the form now shows the clamped value, with a test. Leftover template text in `.npmrc` removed.
+- Gates added and broken once: axe (image without alt → `image-alt`), the 320-pixel horizontal-scroll check (unbroken word), the end-to-end assertions (locator failure seen). lockfile-lint ran clean locally. Not provable locally: `npm audit signatures` (the registry's attestation download is blocked by the proxy); proven in CI.
+
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)
 - Criteria delivered: AC…

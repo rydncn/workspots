@@ -1,0 +1,29 @@
+{{define "title"}}{{.Spot.Name}}: Workspots{{end}}
+{{define "main"}}
+<h1>{{.Spot.Name}}</h1>
+<p>{{kind .Spot.Kind}} in {{.Spot.Area}}. {{.Spot.Address}}</p>
+<h2>What it's like for working</h2>
+<p class="muted">{{if .Spot.ReportCount}}From {{.Spot.ReportCount}} {{if eq .Spot.ReportCount 1}}report{{else}}reports{{end}}.{{else}}As described by whoever added it; no reports yet.{{end}}</p>
+<dl class="attrs-list">
+  <div><dt>Wi-Fi</dt><dd>{{.Spot.WifiLabel}}</dd></div>
+  <div><dt>Noise</dt><dd>{{.Spot.NoiseLabel}}</dd></div>
+  <div><dt>Power sockets</dt><dd>{{yesno .Spot.Power}}</dd></div>
+  <div><dt>Seating time limit</dt><dd>{{yesno .Spot.TimeLimit}}</dd></div>
+  <div><dt>Step-free entrance</dt><dd>{{yesno .Spot.StepFree}}</dd></div>
+  <div><dt>Accessible toilet</dt><dd>{{yesno .Spot.AccessibleToilet}}</dd></div>
+  <div><dt>Quiet space</dt><dd>{{yesno .Spot.Quiet}}</dd></div>
+</dl>
+<h2>Opening hours</h2>
+<p class="hours">{{if .Spot.OpeningHours}}{{.Spot.OpeningHours}}{{else}}Not known yet.{{end}}</p>
+<h2>Reports</h2>
+{{if .Reports}}
+<ol class="reports">
+{{range .Reports}}
+  <li>
+    <p><time datetime="{{iso .CreatedAt}}">{{date .CreatedAt}}</time>: Wi-Fi {{.WifiLabel}}, Noise: {{.NoiseLabel}}{{if .Power}}, power{{end}}{{if .TimeLimit}}, time limit{{end}}{{if .StepFree}}, step-free{{end}}{{if .AccessibleToilet}}, accessible toilet{{end}}{{if .Quiet}}, quiet space{{end}}</p>
+    {{if .Note}}<p class="note">{{.Note}}</p>{{end}}
+  </li>
+{{end}}
+</ol>
+{{else}}<p>No reports yet.</p>{{end}}
+{{end}}

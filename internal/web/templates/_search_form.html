@@ -37,7 +37,7 @@
   <li>
     <h2><a href="/spots/{{.ID}}">{{.Name}}</a></h2>
     <p>{{kind .Kind}} in {{.Area}}</p>
-    <p class="attrs">Wi-Fi {{.WifiLabel}} · {{.NoiseLabel}}{{if .Power}} · Power{{end}}{{if .StepFree}} · Step-free{{end}}{{if .AccessibleToilet}} · Accessible toilet{{end}}{{if .Quiet}} · Quiet space{{end}}{{if .TimeLimit}} · Time limit{{end}}</p>
+    <p class="attrs">Wi-Fi {{.WifiLabel}} · Noise: {{.NoiseLabel}}{{if .Power}} · Power{{end}}{{if .StepFree}} · Step-free{{end}}{{if .AccessibleToilet}} · Accessible toilet{{end}}{{if .Quiet}} · Quiet space{{end}}{{if .TimeLimit}} · Time limit{{end}}</p>
   </li>
 {{end}}
 </ul>

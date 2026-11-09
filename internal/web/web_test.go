@@ -356,6 +356,27 @@ func TestAC2SearchByArea(t *testing.T) {
 	_, body = get(t, a, "/search?area=LS6")
 	has(t, body, "Headingley Library")
 	lacks(t, body, "Leeds Café", "York Lobby")
+
+	// The area as displayed, and two words, both find the spot.
+	_, body = get(t, a, "/search?area=Leeds,+LS6")
+	has(t, body, "Headingley Library")
+	lacks(t, body, "York Lobby")
+
+	// Odd input is handled at the edge, not by the database: a NUL byte is a
+	// page, and an over-long area is cut by character, not mid-rune.
+	res, _ = get(t, a, "/search?area=%00leeds")
+	if res.StatusCode != 200 {
+		t.Errorf("NUL in area: status %d", res.StatusCode)
+	}
+	long := strings.Repeat("é", 81)
+	_, body = get(t, a, "/search?area="+long)
+	if !strings.Contains(body, `value="`+strings.Repeat("é", 80)+`"`) {
+		t.Error("over-long area was not cut to 80 characters")
+	}
+
+	// Out-of-range filter values are clamped and the form shows what was applied.
+	_, body = get(t, a, "/search?area=leeds&wifi=9")
+	has(t, body, `<option value="4" selected>`)
 }
 
 // AC3: filters combine with AND, on the effective attributes (reports over declared).
@@ -411,7 +432,7 @@ func TestAC5SpotPage(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatalf("status %d", res.StatusCode)
 	}
-	has(t, body, "Detail Café", "Mon-Fri 8-18", "Older visible note", "Newer visible note", "Excellent", "Quiet")
+	has(t, body, "Detail Café", "Mon-Fri 8-18", "Older visible note", "Newer visible note", "<dd>Excellent</dd>", "<dd>Quiet</dd>", "Noise: Quiet")
 	lacks(t, body, "Hidden abusive note")
 	if strings.Index(body, "Newer visible note") > strings.Index(body, "Older visible note") {
 		t.Error("reports are not newest first")

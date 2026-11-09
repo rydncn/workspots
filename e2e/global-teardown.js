@@ -9,7 +9,7 @@ const adminURL = process.env.TEST_DATABASE_URL || "postgres://workspots_migrate:
 module.exports = async () => {
   if (!fs.existsSync(stateFile)) return;
   const { pid, db } = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-  try { process.kill(pid, "SIGTERM"); } catch {}
+  if (pid) try { process.kill(pid, "SIGTERM"); } catch {}
   await new Promise((r) => setTimeout(r, 300));
   execFileSync("psql", ["-v", "ON_ERROR_STOP=1", "-q", adminURL, "-c", `DROP DATABASE IF EXISTS ${db} WITH (FORCE)`]);
   fs.unlinkSync(stateFile);

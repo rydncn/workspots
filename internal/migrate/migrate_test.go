@@ -45,6 +45,14 @@ func TestAC30AppRolePrivileges(t *testing.T) {
 	count("table privileges beyond SELECT, INSERT, UPDATE, DELETE",
 		`SELECT count(*) FROM information_schema.role_table_grants
 		 WHERE grantee = 'workspots_app' AND privilege_type NOT IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE')`, 0)
+	count("write privileges on views for workspots_app",
+		`SELECT count(*) FROM information_schema.role_table_grants g JOIN information_schema.views v
+		   ON v.table_schema = g.table_schema AND v.table_name = g.table_name
+		 WHERE g.grantee = 'workspots_app' AND g.privilege_type <> 'SELECT'`, 0)
+	count("views running with owner privileges",
+		`SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = 'public' AND c.relkind = 'v'
+		   AND NOT coalesce((SELECT option_value::bool FROM pg_options_to_table(c.reloptions) WHERE option_name = 'security_invoker'), false)`, 0)
 	count("privileges on schema_migrations",
 		`SELECT count(*) FROM information_schema.role_table_grants
 		 WHERE grantee = 'workspots_app' AND table_name = 'schema_migrations'`, 0)

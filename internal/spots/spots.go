@@ -68,13 +68,15 @@ const spotColumns = `s.id, s.name, s.kind, s.area, s.address, s.opening_hours, s
 	a.wifi, a.noise, a.power, a.time_limit, a.step_free, a.accessible_toilet, a.quiet_space`
 
 // Search returns approved spots matching f, by name. An empty area matches
-// every area; otherwise the area must contain the typed word as one of its
-// comma- or space-separated parts, case-insensitively.
+// every area; otherwise every word typed must be one of the area's comma- or
+// space-separated words, case-insensitively, so "Leeds, LS6" is found by
+// "leeds", "ls6" and "Leeds, LS6".
 func Search(ctx context.Context, db *pgxpool.Pool, f Filter) ([]Spot, error) {
+	words := strings.Fields(strings.ToLower(strings.NewReplacer(",", " ", ";", " ", "/", " ").Replace(f.Area)))
 	rows, err := db.Query(ctx, `SELECT `+spotColumns+`
 		FROM spots s JOIN spot_attributes a ON a.spot_id = s.id
 		WHERE s.status = 'approved'
-		  AND ($1 = '' OR $1 = ANY (string_to_array(lower(regexp_replace(s.area, '[,;/]', ' ', 'g')), ' ')))
+		  AND $1::text[] <@ string_to_array(lower(regexp_replace(s.area, '[,;/]', ' ', 'g')), ' ')
 		  AND a.wifi >= $2
 		  AND ($3 = 0 OR a.noise <= $3)
 		  AND (NOT $4 OR a.power)
@@ -83,7 +85,7 @@ func Search(ctx context.Context, db *pgxpool.Pool, f Filter) ([]Spot, error) {
 		  AND (NOT $7 OR a.accessible_toilet)
 		  AND (NOT $8 OR a.quiet_space)
 		ORDER BY s.name, s.id`,
-		strings.ToLower(strings.TrimSpace(f.Area)), f.MinWifi, f.MaxNoise, f.Power, f.NoTimeLimit, f.StepFree, f.AccessibleToilet, f.Quiet)
+		words, f.MinWifi, f.MaxNoise, f.Power, f.NoTimeLimit, f.StepFree, f.AccessibleToilet, f.Quiet)
 	if err != nil {
 		return nil, err
 	}

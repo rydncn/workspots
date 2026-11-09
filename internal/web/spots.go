@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/rydncn/workspots/internal/spots"
 )
@@ -25,14 +26,24 @@ func clamp(v, lo, hi int) int16 {
 	return int16(max(lo, min(hi, v)))
 }
 
+// readSearch cleans the query at the edge: valid UTF-8 without NUL (Postgres
+// rejects both), at most 80 characters, filter values clamped to their scales
+// so the form echoes what was applied.
 func readSearch(r *http.Request) searchForm {
 	q := r.URL.Query()
 	on := func(name string) bool { return q.Get(name) == "1" }
-	area := q.Get("area")
-	if len(area) > 80 {
-		area = area[:80]
+	area := strings.ToValidUTF8(strings.ReplaceAll(q.Get("area"), "\x00", ""), "")
+	if runes := []rune(area); len(runes) > 80 {
+		area = string(runes[:80])
 	}
-	return searchForm{Area: area, Wifi: q.Get("wifi"), Noise: q.Get("noise"), Power: on("power"),
+	scale := func(name string, hi int) string {
+		v, err := strconv.Atoi(q.Get(name))
+		if err != nil || v <= 0 {
+			return ""
+		}
+		return strconv.Itoa(min(v, hi))
+	}
+	return searchForm{Area: area, Wifi: scale("wifi", 4), Noise: scale("noise", 3), Power: on("power"),
 		NoTimeLimit: on("no_time_limit"), StepFree: on("step_free"), AccessibleToilet: on("accessible_toilet"), Quiet: on("quiet_space")}
 }
 

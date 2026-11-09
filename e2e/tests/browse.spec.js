@@ -61,18 +61,42 @@ test("unknown and pending spots are a 404 page with a correlation ID (AC6)", asy
   await expectPageOK(page);
 });
 
-test("search journey by keyboard only, with visible focus (AC28)", async ({ page }) => {
+test("search journey by keyboard only, with visible focus at every stop (AC28)", async ({ page }) => {
   await page.goto("/");
-  await page.keyboard.press("Tab"); // skip link
-  await expectVisibleFocus(page);
-  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
-  await page.keyboard.press("Tab"); // brand
-  await page.keyboard.press("Tab"); // area field
-  await expect(page.getByLabel("Town or postcode district")).toBeFocused();
-  await expectVisibleFocus(page);
+  const stops = [
+    page.getByRole("link", { name: "Skip to content" }),
+    page.getByRole("link", { name: "Workspots" }),
+    page.getByLabel("Town or postcode district"),
+  ];
+  for (const stop of stops) {
+    await page.keyboard.press("Tab");
+    await expect(stop).toBeFocused();
+    await expectVisibleFocus(page);
+  }
   await page.keyboard.type("LS6");
+  // On through the selects and checkboxes to the button, each with a visible ring.
+  for (const label of ["Wi-Fi at least", "Noise at most", "Power sockets", "No seating time limit", "Step-free entrance", "Accessible toilet", "Quiet space"]) {
+    await page.keyboard.press("Tab");
+    await expect(page.getByLabel(label)).toBeFocused();
+    await expectVisibleFocus(page);
+  }
+  await page.keyboard.press("Space"); // tick "Quiet space"
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Search" })).toBeFocused();
+  await expectVisibleFocus(page);
   await page.keyboard.press("Enter");
+
   await expect(page).toHaveURL(/area=LS6/);
-  await expect(page.getByRole("link", { name: "Headingley Library" })).toBeVisible();
+  await expect(page.getByLabel("Quiet space")).toBeChecked();
+  const result = page.getByRole("link", { name: "Headingley Library" });
+  await expect(result).toBeVisible();
   await expect(page.getByRole("link", { name: "Riverside Café" })).toHaveCount(0);
+  // Tab until the result link has focus, then open it with Enter.
+  for (let i = 0; i < 20 && !(await result.evaluate((el) => el === document.activeElement)); i++) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(result).toBeFocused();
+  await expectVisibleFocus(page);
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Headingley Library");
 });

@@ -19,9 +19,14 @@ async function expectAccessible(page) {
   try {
     const axePage = await context.newPage();
     await axePage.setContent(html, { waitUntil: "load" });
+    // The stylesheet must have applied, or colour contrast is checked on
+    // browser defaults; and axe must have checked something (rule 9).
+    const accent = await axePage.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+    expect(accent, "site stylesheet did not load in the axe page").not.toBe("");
     const results = await new AxeBuilder({ page: axePage })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
       .analyze();
+    expect(results.passes.length, "axe checked nothing").toBeGreaterThan(0);
     expect(results.violations, JSON.stringify(results.violations, null, 1)).toEqual([]);
   } finally {
     await context.close();
@@ -51,7 +56,8 @@ async function expectVisibleFocus(page) {
     return { tag: el.tagName, outlineStyle: s.outlineStyle, outlineWidth: s.outlineWidth };
   });
   expect(style.outlineStyle, `focus on ${style.tag} has no outline`).not.toBe("none");
-  expect(parseFloat(style.outlineWidth)).toBeGreaterThan(0);
+  expect(style.outlineStyle, `focus on ${style.tag} relies on the browser's default ring`).not.toBe("auto");
+  expect(parseFloat(style.outlineWidth)).toBeGreaterThanOrEqual(3);
 }
 
 module.exports = { expectAccessible, expectNoHorizontalScroll, expectPageOK, expectVisibleFocus };

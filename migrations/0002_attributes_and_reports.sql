@@ -32,16 +32,21 @@ CREATE TABLE reports (
 );
 CREATE INDEX reports_spot_idx ON reports (spot_id, hidden, created_at DESC);
 
-CREATE VIEW spot_attributes AS
+-- Ties are decided on purpose: the median of an even count is the rounded
+-- midpoint (ratings 1 and 3 give 2), and a boolean needs a strict majority
+-- (a 1-1 tie is "no", the cautious answer for access attributes). The view
+-- runs with the caller's privileges and is read-only for the app role.
+CREATE VIEW spot_attributes WITH (security_invoker = true) AS
 SELECT s.id AS spot_id,
        count(r.id)::int AS report_count,
-       coalesce(percentile_disc(0.5) WITHIN GROUP (ORDER BY r.wifi),  s.wifi)::smallint  AS wifi,
-       coalesce(percentile_disc(0.5) WITHIN GROUP (ORDER BY r.noise), s.noise)::smallint AS noise,
-       coalesce(avg(r.power::int) >= 0.5,             s.power)             AS power,
-       coalesce(avg(r.time_limit::int) >= 0.5,        s.time_limit)        AS time_limit,
-       coalesce(avg(r.step_free::int) >= 0.5,         s.step_free)         AS step_free,
-       coalesce(avg(r.accessible_toilet::int) >= 0.5, s.accessible_toilet) AS accessible_toilet,
-       coalesce(avg(r.quiet_space::int) >= 0.5,       s.quiet_space)       AS quiet_space
+       coalesce(round(percentile_cont(0.5) WITHIN GROUP (ORDER BY r.wifi)),  s.wifi)::smallint  AS wifi,
+       coalesce(round(percentile_cont(0.5) WITHIN GROUP (ORDER BY r.noise)), s.noise)::smallint AS noise,
+       coalesce(avg(r.power::int) > 0.5,             s.power)             AS power,
+       coalesce(avg(r.time_limit::int) > 0.5,        s.time_limit)        AS time_limit,
+       coalesce(avg(r.step_free::int) > 0.5,         s.step_free)         AS step_free,
+       coalesce(avg(r.accessible_toilet::int) > 0.5, s.accessible_toilet) AS accessible_toilet,
+       coalesce(avg(r.quiet_space::int) > 0.5,       s.quiet_space)       AS quiet_space
 FROM spots s
 LEFT JOIN reports r ON r.spot_id = s.id AND NOT r.hidden
 GROUP BY s.id;
+REVOKE INSERT, UPDATE, DELETE ON spot_attributes FROM workspots_app;

@@ -51,7 +51,19 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - end-to-end: 2. axe-core cannot run in a page with JavaScript disabled (the whole suite timed out on it); axe now runs on the page's HTML in a separate JavaScript-enabled context, which also covers POST result states later. A strict-mode locator matched two elements.
   - gate breaks: 1 invalid proof. The first attempt to break the 320-pixel check used an inline `style` attribute, which the CSP blocks, so nothing was wide and the check "passed"; re-broken with a 300-character unbroken word, which it caught.
   - own process: 1. `git checkout` of a template to undo a planted break reverted the slice's uncommitted changes to it as well; rewritten from the session. Lesson: commit before planting breaks, or plant them in a copy.
-  - hooks: 0. CI: (first run pending). Fresh-context review: (pending).
+  - hooks: 0.
+  - CI, draft run: 0 (the new npm lockfile, signature and audit steps passed first time).
+  - fresh-context review (subagent, about 138k tokens): 10 findings, 2 must-fix, all verified and fixed test-first.
+    1. MUST A NUL byte in the `area` query reached Postgres and became a 500; the 80-character cut was by byte, so a multibyte character could be split. Now cleaned at the edge, with a test.
+    2. MUST The e2e setup polled the port without checking its own child was alive, so the suite could pass against a server it did not start. It now refuses an occupied port (proven by starting another server first) and fails if the child exits.
+    3. SHOULD The axe helper could audit an unstyled or empty document; it now asserts the stylesheet applied and that axe recorded passes.
+    4. SHOULD The keyboard test proved two focus stops; it now walks every control to the button, submits, tabs to a result and opens it, requiring the site's own 3px ring rather than the browser default.
+    5. SHOULD A failed setup orphaned its database; the state file is now written right after `CREATE DATABASE`.
+    6. SHOULD The area as displayed ("Leeds, LS6") found nothing; every typed word must now match, with a test.
+    7. SHOULD The view had write grants from the default privileges and ran with owner rights; now `security_invoker` and read-only, and `TestAC30` checks both for every view.
+    8. SHOULD Median and majority ties were accidental; now a rounded midpoint and a strict majority, commented.
+    9. SHOULD "Quiet" (noise) beside "Quiet space" was ambiguous to a screen reader, and the AC5 assertion on it near-tautological; now "Noise: Quiet", with a sharper assertion.
+    10. SHOULD Out-of-range filter values were applied but echoed as "Any"; the form now shows the clamped value, with a test. Leftover template text in `.npmrc` removed.
 - Gates added and broken once: axe (image without alt → `image-alt`), the 320-pixel horizontal-scroll check (unbroken word), the end-to-end assertions (locator failure seen). lockfile-lint ran clean locally. Not provable locally: `npm audit signatures` (the registry's attestation download is blocked by the proxy); proven in CI.
 
 <!-- Template for each slice:

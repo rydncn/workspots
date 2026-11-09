@@ -20,7 +20,7 @@
 <ol class="reports">
 {{range .Reports}}
   <li>
-    <p><time datetime="{{iso .CreatedAt}}">{{date .CreatedAt}}</time>: Wi-Fi {{.WifiLabel}}, {{.NoiseLabel}}{{if .Power}}, power{{end}}{{if .TimeLimit}}, time limit{{end}}{{if .StepFree}}, step-free{{end}}{{if .AccessibleToilet}}, accessible toilet{{end}}{{if .Quiet}}, quiet space{{end}}</p>
+    <p><time datetime="{{iso .CreatedAt}}">{{date .CreatedAt}}</time>: Wi-Fi {{.WifiLabel}}, Noise: {{.NoiseLabel}}{{if .Power}}, power{{end}}{{if .TimeLimit}}, time limit{{end}}{{if .StepFree}}, step-free{{end}}{{if .AccessibleToilet}}, accessible toilet{{end}}{{if .Quiet}}, quiet space{{end}}</p>
     {{if .Note}}<p class="note">{{.Note}}</p>{{end}}
   </li>
 {{end}}

@@ -12,3 +12,13 @@ INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessi
 SELECT id, 3, 2, true, false, true, true, false, 'Busy at lunch.', false, now() - interval '1 day' FROM spots WHERE name = 'Riverside Café';
 INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
 SELECT id, 0, 3, false, true, false, false, false, 'HIDDEN SPAM NOTE', true, now() FROM spots WHERE name = 'Riverside Café';
+
+-- Members for the end-to-end tests to sign in as (password "a long enough
+-- password", hashed once with the app's own argon2id parameters), so that
+-- only the sign-up journey signs up and the in-memory rate limits (ten
+-- sign-ups per IP per quarter hour) stay out of the way of the suite.
+INSERT INTO users (email, password_hash) VALUES
+ ('member-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
+ ('member-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
+ ('reader-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
+ ('reader-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko');

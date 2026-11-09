@@ -63,9 +63,12 @@ test("unknown and pending spots are a 404 page with a correlation ID (AC6)", asy
 
 test("search journey by keyboard only, with visible focus at every stop (AC28)", async ({ page }) => {
   await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Main" });
   const stops = [
     page.getByRole("link", { name: "Skip to content" }),
-    page.getByRole("link", { name: "Workspots" }),
+    nav.getByRole("link", { name: "Workspots" }),
+    nav.getByRole("link", { name: "Sign in" }),
+    nav.getByRole("link", { name: "Sign up" }),
     page.getByLabel("Town or postcode district"),
   ];
   for (const stop of stops) {

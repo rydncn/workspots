@@ -38,17 +38,17 @@ Data: `users` (id, email, password_hash, role, created_at), `sessions` (hashed t
 
 Errors: every error response is an RFC 9457 problem. A request whose `Accept` prefers `text/html` gets the same problem rendered as an HTML page with the same fields; anything else gets `application/problem+json`. Both carry the correlation ID.
 
-CSRF: one mechanism before and after sign-in. A `__Host-csrf` cookie (`Secure`, `HttpOnly`, `SameSite=Lax`) holds a random secret, issued with any form when absent; the form's hidden token is an HMAC-SHA256 of the session ID (or `anonymous` before sign-in) keyed by that secret, so the token is tied to the session once one exists and to the browser before. Both cookies rotate at sign-in. Independently, every `POST` must carry a same-origin `Origin` or `Sec-Fetch-Site: same-origin`.
+CSRF: one mechanism before and after sign-in. A `__Host-csrf` cookie (`Secure`, `HttpOnly`, `SameSite=Lax`) holds a random secret, issued with any form when absent; the form's hidden token is an HMAC-SHA256 of the session ID (or `anonymous` before sign-in) keyed by that secret, so the token is tied to the session once one exists and to the browser before. Both cookies rotate at sign-in. Independently, every `POST` must carry an `Origin` naming this host or `Sec-Fetch-Site: same-origin` (or `none`); a `POST` with neither header is refused.
 
 Email: the app composes messages (welcome, password changed, account deleted) and hands them to a sender. The development sender writes them to a plain "dev outbox" stream, separate from the structured log, so the structured log never carries an address.
 
-What is real in tests: the real server, the real Postgres with every migration applied, real sessions and password hashing. Faked at the edge: the mail sender (a recording fake), the clock and the request IP. Nothing else.
+What is real in tests: the real server, the real Postgres with every migration applied, real sessions and password hashing. Faked at the edge: the mail sender (a recording fake) and the request IP (through the trusted-proxy header). Nothing else; time is real, and tests that need a window to pass wait for it.
 
 ### Security boundaries
 
 - Only `internal/web` imports `net/http`; domain packages have no notion of requests or cookies. Checked by a CI grep on imports.
 - All SQL runs as `workspots_app`, which owns nothing and holds only the grants its queries need; a test queries the catalogue after migrating an empty database (AC30).
-- Every state change is a `POST` with a CSRF token tied to the session and a same-site `Origin`/`Sec-Fetch-Site`; `GET` never changes state (AC17).
+- Every state change is a `POST` with a CSRF token tied to the session and a same-origin `Origin` or `Sec-Fetch-Site`; `GET` never changes state (AC17).
 - Authorisation is checked per resource in the domain: who may approve, hide, change a role, or delete an account (AC18–AC21, AC11).
 - Configuration and secrets come from the environment only; production mode refuses development values (AC27). Nothing personal or secret reaches a log line (AC26).
 
@@ -57,10 +57,10 @@ What is real in tests: the real server, the real Postgres with every migration a
 | Data                                            | Why we hold it                      | Retention                                                  |
 | ----------------------------------------------- | ----------------------------------- | ---------------------------------------------------------- |
 | Email address, password hash                    | Sign in                             | Until the account is deleted                               |
-| Sessions (hashed token, user id, expiry)        | Stay signed in                      | 30 days from creation, or sign-out, or account deletion    |
+| Sessions (hashed token, user id, expiry)        | Stay signed in                      | 30 days from creation, or sign-out, or account deletion; expired rows are deleted at the next sign-in or sign-out (a scheduled sweep is a later decision) |
 | Reports and problem reports (author, note, date)| The product                         | Deleted with the account                                   |
 | Spots added (authorship)                        | Moderation and attribution          | Authorship removed when the account is deleted; a pending or rejected spot is deleted with it |
-| Rate-limit counters (hashed IP and account key) | Abuse control                       | In memory, 15 minutes                                      |
+| Rate-limit counters (hashed IP and account key) | Abuse control                       | In memory, 15 minutes; pruned when next consulted          |
 | Logs (correlation ID, route, status, user id)   | Operations                          | Whatever the log sink keeps; never an address, note or token |
 
 ## Acceptance criteria
@@ -79,7 +79,7 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC5. A spot page shows its details and visible reports.** Given an approved spot with a hidden and a visible report, when anyone opens it, then its attributes, opening hours and the visible report with its date are shown, newest first, and the hidden report is not.
 
-**AC6. An unknown spot is a problem, not a crash.** Given no spot with that id, when anyone opens it, then the response is a 404 problem with type `spot-not-found` and a correlation ID; a pending spot is 404 to everyone but its author and moderators.
+**AC6. An unknown spot is a problem, not a crash.** Given no spot with that id, when anyone opens it, then the response is a 404 problem with type `spot-not-found` and a correlation ID; a pending spot is 404 to everyone but its author (from slice 4, AC14) and moderators (from slice 5, AC19).
 
 ### Accounts
 

@@ -102,6 +102,10 @@ func TestApplyIsIdempotentAndOrdered(t *testing.T) {
 	if names[0] != "0001_init.sql" {
 		t.Errorf("first migration recorded was %q", names[0])
 	}
+	again, err := migrate.Apply(ctx, conn, migrations.FS)
+	if err != nil || len(again) != 0 {
+		t.Errorf("second Apply applied %v, %v", again, err)
+	}
 }
 
 // Migrations refuse to run unless the migrate role owns the database: REVOKE

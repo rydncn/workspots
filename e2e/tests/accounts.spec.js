@@ -5,6 +5,10 @@ const { expectPageOK, expectVisibleFocus } = require("./helpers");
 
 const password = "a long enough password";
 const fresh = () => `e2e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}@example.test`;
+// Seeded accounts (seed.sql), one per project so tests don't share state. The
+// in-memory sign-up limit is ten per IP, so only one journey signs up.
+const member = (testInfo) => `member-${testInfo.project.name}@example.test`;
+const reader = (testInfo) => `reader-${testInfo.project.name}@example.test`;
 
 async function signUp(page, email) {
   await page.goto("/sign-up");
@@ -55,10 +59,8 @@ test("validation failures keep what was typed and are announced (AC7, AC28)", as
   await expectPageOK(page);
 });
 
-test("a wrong password and an unknown address are refused alike (AC8)", async ({ page }) => {
-  const email = fresh();
-  await signUp(page, email);
-  await signIn(page, email, "not the password at all");
+test("a wrong password and an unknown address are refused alike (AC8)", async ({ page }, testInfo) => {
+  await signIn(page, reader(testInfo), "not the password at all");
   const first = await page.getByRole("alert").textContent();
   await signIn(page, fresh(), password);
   const second = await page.getByRole("alert").textContent();
@@ -67,9 +69,8 @@ test("a wrong password and an unknown address are refused alike (AC8)", async ({
   await expectPageOK(page);
 });
 
-test("change password, old one refused, new one works (AC10)", async ({ page }) => {
-  const email = fresh();
-  await signUp(page, email);
+test("change password, old one refused, new one works (AC10)", async ({ page }, testInfo) => {
+  const email = member(testInfo); // this account's password changes; nothing else signs in as it
   await signIn(page, email);
   await page.getByRole("link", { name: "Change password" }).click();
   await expectPageOK(page);
@@ -90,9 +91,8 @@ test("change password, old one refused, new one works (AC10)", async ({ page }) 
   await expect(page).toHaveURL(/\/account$/);
 });
 
-test("signed-in journey by keyboard with visible focus (AC28)", async ({ page }) => {
-  const email = fresh();
-  await signUp(page, email);
+test("signed-in journey by keyboard with visible focus (AC28)", async ({ page }, testInfo) => {
+  const email = reader(testInfo);
   await page.goto("/sign-in");
   const nav = page.getByRole("navigation", { name: "Main" });
   await page.keyboard.press("Tab");

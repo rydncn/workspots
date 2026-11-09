@@ -286,8 +286,8 @@ func TestAC23EveryErrorIsAProblem(t *testing.T) {
 		if res.StatusCode != 404 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
 			t.Fatalf("got %d %s", res.StatusCode, res.Header.Get("Content-Type"))
 		}
-		if !strings.Contains(body, "<title>") || !strings.Contains(body, res.Header.Get("X-Correlation-Id")) || !strings.Contains(body, "404") {
-			t.Errorf("HTML problem page lacks title, status or correlation id: %q", body)
+		if !strings.Contains(body, "<title>") || !strings.Contains(body, res.Header.Get("X-Correlation-Id")) || !strings.Contains(body, "404") || !strings.Contains(body, "/problems/not-found") {
+			t.Errorf("HTML problem page lacks title, status, type or correlation id: %q", body)
 		}
 	})
 	t.Run("missing static file and directory listing", func(t *testing.T) {
@@ -298,8 +298,14 @@ func TestAC23EveryErrorIsAProblem(t *testing.T) {
 				t.Errorf("%s: got %d %+v", path, res.StatusCode, p)
 			}
 		}
-		if res, _ := get(t, a, "/static/style.css"); res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") {
+		res, _ := get(t, a, "/static/style.css")
+		if res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/css") {
 			t.Errorf("stylesheet: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+		}
+		// A publicly cacheable response must never carry a Set-Cookie: a shared
+		// cache would hand one CSRF secret to every browser.
+		if len(res.Header.Values("Set-Cookie")) != 0 {
+			t.Errorf("static file set a cookie: %v", res.Header.Values("Set-Cookie"))
 		}
 	})
 	t.Run("wrong method", func(t *testing.T) {
@@ -307,6 +313,21 @@ func TestAC23EveryErrorIsAProblem(t *testing.T) {
 		p := readProblem(t, res, body)
 		if res.StatusCode != 405 || p.Type != "/problems/method-not-allowed" || !strings.Contains(res.Header.Get("Allow"), "GET") {
 			t.Errorf("got %d %+v allow=%q", res.StatusCode, p, res.Header.Get("Allow"))
+		}
+	})
+	t.Run("health", func(t *testing.T) {
+		res, body := get(t, a, "/healthz")
+		if res.StatusCode != 200 || !strings.Contains(body, "ok") {
+			t.Errorf("healthz: %d %q", res.StatusCode, body)
+		}
+		if res.Header.Get("Cache-Control") != "no-store" {
+			t.Errorf("healthz cacheable: %q", res.Header.Get("Cache-Control"))
+		}
+		b := newApp(t)
+		b.pool.Close()
+		res, body = get(t, b, "/healthz", "Accept", "application/json")
+		if p := readProblem(t, res, body); res.StatusCode != 503 || p.Type != "/problems/unavailable" {
+			t.Errorf("healthz with the database down: %d %+v", res.StatusCode, p)
 		}
 	})
 	t.Run("unexpected failure", func(t *testing.T) {

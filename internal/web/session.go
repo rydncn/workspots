@@ -69,6 +69,10 @@ func setCookie(w http.ResponseWriter, name, value string, maxAge int) {
 // CSRF secret when the browser has none.
 func (s *server) sessions(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r) // publicly cacheable, so never a Set-Cookie
+			return
+		}
 		sess := &session{}
 		if c, err := r.Cookie(csrfCookie); err == nil && len(c.Value) == 64 {
 			sess.csrfSecret = c.Value
@@ -117,22 +121,22 @@ func (s *server) csrf(next http.Handler) http.Handler {
 
 func subtleEqual(a, b string) bool { return hmac.Equal([]byte(a), []byte(b)) }
 
-// sameOrigin: an Origin header must name this host; Sec-Fetch-Site must not
-// say cross-site. Requests with neither (old clients) rely on the token.
+// sameOrigin: an Origin header must name this host, and Sec-Fetch-Site must
+// be same-origin (or none, a direct navigation). A POST with neither header is
+// refused: every current browser sends at least one, and the forms are only
+// ever posted by browsers.
 func sameOrigin(r *http.Request) bool {
-	if o := r.Header.Get("Origin"); o != "" && o != "null" {
-		u, err := url.Parse(o)
-		if err != nil || !strings.EqualFold(u.Host, r.Host) {
-			return false
-		}
-	} else if o == "null" {
+	origin, site := r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Site")
+	if origin == "" && site == "" {
 		return false
 	}
-	switch r.Header.Get("Sec-Fetch-Site") {
-	case "", "same-origin", "none":
-		return true
+	if origin != "" {
+		u, err := url.Parse(origin)
+		if err != nil || origin == "null" || !strings.EqualFold(u.Host, r.Host) {
+			return false
+		}
 	}
-	return false
+	return site == "" || site == "same-origin" || site == "none"
 }
 
 // signIn starts a session for u, ending the one the browser had (AC8), and

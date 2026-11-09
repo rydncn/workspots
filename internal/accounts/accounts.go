@@ -140,9 +140,10 @@ func SessionUser(ctx context.Context, db *pgxpool.Pool, token string) (User, err
 	return u, err
 }
 
-// EndSession deletes one session; a token that is already gone is not an error.
+// EndSession deletes one session, and any expired ones while it is at it; a
+// token that is already gone is not an error.
 func EndSession(ctx context.Context, db *pgxpool.Pool, token string) error {
-	_, err := db.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, SessionID(token))
+	_, err := db.Exec(ctx, `DELETE FROM sessions WHERE id = $1 OR expires_at <= now()`, SessionID(token))
 	return err
 }
 

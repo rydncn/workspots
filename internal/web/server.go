@@ -51,6 +51,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /search", s.search)
 	mux.HandleFunc("GET /spots/{id}", s.spot)
 	mux.HandleFunc("GET /static/{file...}", s.static)
+	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /sign-up", s.signUpForm)
 	mux.HandleFunc("POST /sign-up", s.signUpPost)
 	mux.HandleFunc("GET /sign-in", s.signInForm)
@@ -79,6 +80,19 @@ func (s *server) static(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	http.ServeFileFS(w, r, staticFiles, name)
+}
+
+// health answers 200 "ok" when the database answers, else a 503 problem; for
+// the container's health check and the release rehearsal (ADR 0008).
+func (s *server) health(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if err := s.db.Ping(r.Context()); err != nil {
+		s.log.ErrorContext(r.Context(), "health check failed", "error", err.Error())
+		s.writeProblem(w, r, unavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("ok\n"))
 }
 
 func (s *server) home(w http.ResponseWriter, r *http.Request) {

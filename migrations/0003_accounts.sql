@@ -20,6 +20,7 @@ CREATE TABLE sessions (
   expires_at timestamptz NOT NULL
 );
 CREATE INDEX sessions_user_idx ON sessions (user_id);
+CREATE INDEX sessions_expires_idx ON sessions (expires_at);
 
 ALTER TABLE reports ADD CONSTRAINT reports_author_fk FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE CASCADE;
 ALTER TABLE spots   ADD CONSTRAINT spots_created_by_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL;

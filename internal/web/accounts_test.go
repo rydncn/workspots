@@ -298,6 +298,23 @@ func TestAC12RateLimits(t *testing.T) {
 			t.Errorf("forged X-Forwarded-For escaped the per-IP limit: %d", res.StatusCode)
 		}
 	})
+	t.Run("password change has its own limit", func(t *testing.T) {
+		b := a.browser(t)
+		b.ip = "10.4.0.1"
+		own := unique("pwlimit") // the shared address is already limited above
+		b.signUp(own, goodPassword)
+		if res, _ := b.signIn(own, goodPassword); res.StatusCode != 303 {
+			t.Fatalf("sign-in: %d", res.StatusCode)
+		}
+		var last int
+		for i := 0; i < 6; i++ {
+			res, _ := b.post("/account/password", "/account/password", url.Values{"current": {"wrong current pw"}, "password": {"another long password"}})
+			last = res.StatusCode
+		}
+		if last != 429 {
+			t.Errorf("sixth wrong current password: %d", last)
+		}
+	})
 	t.Run("sign-up has its own limit", func(t *testing.T) {
 		b := a.browser(t)
 		b.ip = "10.3.0.1"
@@ -358,6 +375,14 @@ func TestAC17CrossSiteWritesRefused(t *testing.T) {
 		res, _ := b.postRaw("/sign-out", url.Values{"csrf": {token}}, "Sec-Fetch-Site", "cross-site")
 		if res.StatusCode != 403 || b.cookie("__Host-session") == nil {
 			t.Errorf("got %d, signed out=%v", res.StatusCode, b.cookie("__Host-session") == nil)
+		}
+	})
+	t.Run("post with a valid token but neither Origin nor Sec-Fetch-Site", func(t *testing.T) {
+		_, page := b.get("/account")
+		token := csrfField.FindStringSubmatch(page)[1]
+		res, _ := b.postRaw("/sign-out", url.Values{"csrf": {token}})
+		if res.StatusCode != 403 || b.cookie("__Host-session") == nil {
+			t.Errorf("got %d", res.StatusCode)
 		}
 	})
 	t.Run("GET on a write path", func(t *testing.T) {

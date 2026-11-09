@@ -87,6 +87,20 @@ How context is measured: the playbook's context-budget hook reads the transcript
     6. The mail goroutine had no recover; a panicking provider would have taken the process down.
     7. Rule contradictions: validation errors were mapped on the form rather than in `domainProblems` (rule text amended to say so); password change was limited per account only, now per IP too; `__Host-csrf` flags were asserted nowhere, now in AC8; the current password is checked before the new one is validated.
     8. The untrusted-proxy branch of `clientIP` was never observed; a test now shows a forged `X-Forwarded-For` cannot escape the per-IP limit.
+  - whole-codebase review (subagent briefed from `CLAUDE.md`, the design, the rules and the ADRs, no diff; about 205k tokens): 12 findings, 4 must-fix, all fixed, the behavioural ones test-first.
+    1. MUST `/static/` responses were `Cache-Control: public` and carried the `__Host-csrf` Set-Cookie, so a shared cache could hand one CSRF secret to every browser: login CSRF, the case AC17 exists for. Static and health responses now skip the session middleware; a test asserts no Set-Cookie.
+    2. MUST The HTML problem page omitted `type`, contradicting AC23 and `api.md`, and the test didn't check it. Rendered and asserted.
+    3. MUST The design and `CLAUDE.md` said every `POST` must carry a same-origin `Origin` or `Sec-Fetch-Site`; the code accepted a `POST` with neither. Now refused, with a test; the design's "same-site" wording corrected to "same-origin".
+    4. MUST `GET /healthz` was documented in `api.md` and ADR 0008 and did not exist. Added: 200 "ok", 503 problem when the database is down, `no-store`; tested both ways.
+    5. The e2e suite would hit the in-memory sign-up limit as soon as slice 4 added a journey; users are now seeded per project and only the sign-up journey signs up.
+    6. AC12's password-change limit and AC6's author/moderator exception were named but not exercised; the first is now tested, the second recorded in the design as owed to slices 4 and 5.
+    7. `TestApplyIsIdempotentAndOrdered` never applied twice; it does now (and fails when `ON CONFLICT DO NOTHING` is removed).
+    8. The design claimed a faked clock that doesn't exist; wording corrected.
+    9. `CLAUDE.md`'s architecture omitted `internal/mail` and the `sessions`/`csrf` middleware; updated.
+    10. `net/http/httptest` was imported by the production binary for the 405 probe; replaced with a ten-line header-capturing writer.
+    11. Retention table versus code: expired sessions are now also deleted at sign-out and indexed by expiry, and the table says when deletion happens and that rate-limit keys are pruned on use.
+    12. Copy: the check-email page told existing account holders to use "the password you chose"; the CODEOWNERS header still said "copy to". Both fixed.
+  - Per-slice reviews had passed all twelve; four only show when the slices are read together (static caching versus the new cookie, the document-versus-code Origin rule, the documented health route, the e2e harness versus the new limits).
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

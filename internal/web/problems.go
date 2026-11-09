@@ -34,6 +34,8 @@ var (
 		Detail: "Sign in to do this."}
 	validation = Problem{Type: "/problems/validation", Title: "Some fields need attention", Status: 422,
 		Detail: "One or more fields are missing or not valid; see errors."}
+	unavailable = Problem{Type: "/problems/unavailable", Title: "Service unavailable", Status: 503,
+		Detail: "The service cannot reach its database right now."}
 	tooMany = Problem{Type: "/problems/rate-limited", Title: "Too many attempts", Status: 429,
 		Detail: "Too many attempts in a short time. Wait for the number of seconds in the Retry-After header and try again."}
 )

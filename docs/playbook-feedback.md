@@ -39,6 +39,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 24. **`api.md`'s cookie rules meet Go's test tooling.** `Secure` cookies only round-trip through `httptest.NewTLSServer`, and `httptest.Server.Client()` returns one shared client, so "a browser per user" needs a client per browser or every user is the same person. Neither is in the template, and both cost an hour here. A Go note on the "How these are checked" section would save it.
 
+25. **The whole-codebase review earned its place again, exactly as the README says.** After three slices it found twelve things three fresh-context reviews had passed, four of them must-fix, and four of those only visible with the slices read together: a cookie newly set on responses an earlier slice had made publicly cacheable, a rule the documents stated more strictly than the code, a route two documents promised that no slice had built, and a test harness about to collide with a new rate limit. Cost: one subagent run of about 205k tokens, the largest single review so far.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

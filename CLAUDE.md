@@ -29,9 +29,10 @@ At the start of a session, if the plugin check reports missing plugins, tell the
 
 - `web`: the only package that imports `net/http`. Routes, handlers, `html/template` pages, middleware (correlation ID, security headers, request log, recover, sessions, CSRF, rate limits), and `problems.go`, where every domain error is mapped to its RFC 9457 problem once.
 - `spots`, `accounts`, `moderation`: domain code and plain SQL through `pgx`. They return named errors and know nothing about HTTP.
+- `mail`: the `Sender` interface, the development outbox (plain text on stderr), the production logging sender and the test recorder (ADR 0009).
 - `migrate` applies `migrations/*.sql` in order; `config` reads the environment; `obs` is the logger, correlation ID and query tracer; `testdb` gives each test its own migrated database.
 
-Request flow: `correlate` → `securityHeaders` → `logRequests` → `recover` → `routeErrors(mux)` → handler → domain → `pgx` as `workspots_app`.
+Request flow: `correlate` → `securityHeaders` → `logRequests` → `recover` → `sessions` → `routeErrors` (404/405 as problems, then `csrf` on every `POST`, then the mux) → handler → domain → `pgx` as `workspots_app`. `/static/` and `/healthz` skip `sessions`, so they never set a cookie.
 
 ### Security boundaries
 

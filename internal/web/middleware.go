@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"time"
 
@@ -47,6 +46,16 @@ func securityHeaders(production bool) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// headerProbe captures what the mux's own 404/405 handler would have sent.
+type headerProbe struct {
+	header http.Header
+	status int
+}
+
+func (p *headerProbe) Header() http.Header         { return p.header }
+func (p *headerProbe) WriteHeader(code int)        { p.status = code }
+func (p *headerProbe) Write(b []byte) (int, error) { return len(b), nil }
 
 // statusWriter records the status for the request log.
 type statusWriter struct {
@@ -106,10 +115,10 @@ func (s *server) routeErrors(mux *http.ServeMux) http.Handler {
 			dispatch.ServeHTTP(w, r)
 			return
 		}
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, r)
-		if rec.Code == http.StatusMethodNotAllowed {
-			w.Header().Set("Allow", rec.Header().Get("Allow"))
+		probe := &headerProbe{header: http.Header{}}
+		h.ServeHTTP(probe, r)
+		if probe.status == http.StatusMethodNotAllowed {
+			w.Header().Set("Allow", probe.header.Get("Allow"))
 			s.writeProblem(w, r, methodNotAllowed)
 			return
 		}

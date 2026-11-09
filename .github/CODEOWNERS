@@ -1,5 +1,4 @@
-# Copy to .github/CODEOWNERS and replace @rydncn with the people who review
-# agent configuration. GitHub then asks them to review any pull request that
+# Who reviews agent configuration (@rydncn). GitHub then asks them to review any pull request that
 # touches these files. Required review needs branch protection; without it
 # (GitHub Free with a private repository), this still requests the review,
 # and the CI step "Agent configuration changes" flags the pull request.

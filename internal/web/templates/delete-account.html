@@ -1,0 +1,16 @@
+{{define "title"}}Delete your account: Workspots{{end}}
+{{define "main"}}
+<h1>Delete your account</h1>
+{{template "errors" .}}
+<p>This removes your account, your sessions, your reports and your problem reports, and any spot you added that is not yet approved. Approved spots stay, with no author. There is no undo.</p>
+<form method="post" action="/account/delete" class="stack">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="field">
+    <label for="password">Password <span class="hint">(to confirm it is you)</span></label>
+    <input id="password" name="password" type="password" required autocomplete="current-password"{{template "invalid" (dict . "password")}}>
+    {{template "field_error" (dict . "password")}}
+  </div>
+  <button type="submit">Delete my account</button>
+</form>
+<p><a href="/account">Back to your account</a></p>
+{{end}}

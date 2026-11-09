@@ -184,6 +184,48 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/account?changed=1", http.StatusSeeOther)
 }
 
+func (s *server) deleteForm(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireUser(w, r); !ok {
+		return
+	}
+	s.render(w, r, http.StatusOK, "delete-account.html", map[string]any{})
+}
+
+// deletePost deletes the signed-in account once its password is confirmed
+// (AC11), signs the browser out and sends the farewell to the address the
+// database no longer holds.
+func (s *server) deletePost(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.requireUser(w, r)
+	if !ok {
+		return
+	}
+	key, ipKey := "delete:user:"+itoa(u.ID), "delete:ip:"+s.clientIP(r)
+	if wait := max(s.limits.take(key, changePerUser), s.limits.take(ipKey, signInPerIP)); wait > 0 {
+		s.rateLimited(w, r, wait)
+		return
+	}
+	err := accounts.Delete(r.Context(), s.db, u.ID, r.PostForm.Get("password"))
+	if errors.Is(err, accounts.ErrInvalidCredentials) {
+		s.invalid(w, r, "delete-account.html", map[string]any{}, []fieldError{{"password", "The password is not right."}})
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.limits.refund(key)
+	s.limits.refund(ipKey)
+	setCookie(w, sessionCookie, "", -1)
+	s.log.InfoContext(r.Context(), "account deleted", "user_id", u.ID)
+	s.send(r, mail.Message{Kind: "account-deleted", To: u.Email, Subject: "Your Workspots account has been deleted",
+		Body: "Your account, its sessions, reports and problem reports are gone. Spots you added that were approved stay, with no author. If this was not you, we cannot restore it, but you can sign up again at " + s.cfg.BaseURL + "/sign-up"})
+	http.Redirect(w, r, "/account/deleted", http.StatusSeeOther)
+}
+
+func (s *server) deleted(w http.ResponseWriter, r *http.Request) {
+	s.render(w, r, http.StatusOK, "account-deleted.html", map[string]any{})
+}
+
 // send delivers a message in a goroutine that outlives the response but keeps
 // the request's context values, so its log line carries the correlation ID.
 func (s *server) send(r *http.Request, m mail.Message) {

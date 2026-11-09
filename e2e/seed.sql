@@ -27,6 +27,10 @@ INSERT INTO users (email, password_hash, role) VALUES
  ('admin-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko', 'admin'),
  ('promoted-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko', 'member'),
  ('promoted-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko', 'member');
+-- Accounts the deletion journey deletes, one per project.
+INSERT INTO users (email, password_hash) VALUES
+ ('deletable-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
+ ('deletable-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko');
 INSERT INTO users (email, password_hash) VALUES
  ('contributor-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
  ('contributor-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko');

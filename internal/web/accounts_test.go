@@ -501,3 +501,96 @@ func TestAC25CorrelationIDReachesTheGoroutine(t *testing.T) {
 	}
 	t.Fatal("no 'mail sent' log line")
 }
+
+// AC11: deleting the account with the right password removes the user, its
+// sessions, reports, problem reports and pending spot; an approved spot stays
+// with no author, a decision it made keeps no name, and the visitor is signed
+// out (ADR 0011). A wrong password changes nothing.
+func TestAC11DeleteAccount(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "ac11")
+	other := a.browser(t)
+	other.signIn(b.email, goodPassword)
+	ctx := context.Background()
+	var userID int64
+	if err := a.admin.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, b.email).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	approved := a.addSpotWith(t, "Kept Café", "Leeds", "approved", attrs{Wifi: 2, Noise: 2})
+	pending := a.addSpotWith(t, "Gone Café", "Leeds", "pending", attrs{Wifi: 2, Noise: 2})
+	decided := a.addSpotWith(t, "Decided Café", "Leeds", "approved", attrs{Wifi: 2, Noise: 2})
+	if _, err := a.admin.Exec(ctx, `UPDATE spots SET created_by = $1 WHERE id IN ($2, $3)`, userID, approved, pending); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.admin.Exec(ctx, `UPDATE spots SET moderated_by = $1, moderated_at = now() WHERE id = $2`, userID, decided); err != nil {
+		t.Fatal(err)
+	}
+	a.addReportBy(t, userID, approved, attrs{Wifi: 4, Noise: 1}, "my report", false, 1)
+	if _, err := a.admin.Exec(ctx, `INSERT INTO problem_reports (spot_id, reporter_id, reason) VALUES ($1, $2, 'my problem')`, decided, userID); err != nil {
+		t.Fatal(err)
+	}
+	count := func(query string) int64 {
+		t.Helper()
+		var n int64
+		if err := a.admin.QueryRow(ctx, query, userID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	res, body := b.get("/account")
+	if res.StatusCode != 200 || !strings.Contains(body, "/account/delete") {
+		t.Fatalf("account page: %d, offers deletion=%v", res.StatusCode, strings.Contains(body, "/account/delete"))
+	}
+	res, body = b.post("/account/delete", "/account/delete", url.Values{"password": {"not the password"}})
+	if res.StatusCode != 422 || !strings.Contains(body, `class="error"`) {
+		t.Fatalf("wrong password: %d", res.StatusCode)
+	}
+	if n := count(`SELECT count(*) FROM users WHERE id = $1`); n != 1 {
+		t.Fatalf("wrong password deleted the account")
+	}
+
+	res, _ = b.post("/account/delete", "/account/delete", url.Values{"password": {goodPassword}})
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/account/deleted" {
+		t.Fatalf("delete: %d to %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	res, body = b.get("/account/deleted")
+	if res.StatusCode != 200 || !strings.Contains(body, "Your account has been deleted") || strings.Contains(body, b.email) {
+		t.Errorf("confirmation page: %d, shows address=%v", res.StatusCode, strings.Contains(body, b.email))
+	}
+
+	for query, want := range map[string]int64{
+		`SELECT count(*) FROM users WHERE id = $1`:                                                                          0,
+		`SELECT count(*) FROM sessions WHERE user_id = $1`:                                                                  0,
+		`SELECT count(*) FROM reports WHERE author_id = $1`:                                                                 0,
+		`SELECT count(*) FROM problem_reports WHERE reporter_id = $1`:                                                       0,
+		`SELECT count(*) FROM spots WHERE created_by = $1 OR moderated_by = $1`:                                             0,
+		`SELECT count(*) FROM spots WHERE name IN ('Kept Café', 'Decided Café') AND created_by IS NULL AND $1::bigint <> 0`: 2,
+		`SELECT count(*) FROM spots WHERE name = 'Gone Café' AND $1::bigint <> 0`:                                           0,
+	} {
+		if n := count(query); n != want {
+			t.Errorf("%s: %d, want %d", query, n, want)
+		}
+	}
+	if b.cookie("__Host-session") != nil {
+		t.Error("session cookie not cleared")
+	}
+	for name, br := range map[string]*browser{"deleting": b, "other": other} {
+		if res, _ := br.get("/account"); res.StatusCode != 303 {
+			t.Errorf("%s session still signed in: %d", name, res.StatusCode)
+		}
+	}
+	if res, _ := a.browser(t).signIn(b.email, goodPassword); res.StatusCode != 422 {
+		t.Errorf("deleted account can sign in: %d", res.StatusCode)
+	}
+	if kinds := waitForMail(t, a, 2); kinds[len(kinds)-1] != "account-deleted" {
+		t.Errorf("mail kinds %v", kinds)
+	}
+	if _, body := staff(t, a, "ac11mod", "moderator").get("/moderation"); !strings.Contains(body, "a deleted account") {
+		t.Error("the queue's history names a deleted moderator")
+	}
+	if strings.Contains(a.logs.String(), b.email) {
+		t.Error("the address reached the log")
+	}
+}

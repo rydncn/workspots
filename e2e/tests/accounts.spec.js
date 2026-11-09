@@ -1,4 +1,4 @@
-// Accounts (AC7 to AC10, AC17) as a person would, JavaScript off (AC29),
+// Accounts (AC7 to AC11, AC17) as a person would, JavaScript off (AC29),
 // every state checked for accessibility (AC28).
 const { test, expect } = require("@playwright/test");
 const { expectPageOK, expectVisibleFocus } = require("./helpers");
@@ -35,7 +35,7 @@ test("sign up, sign in, see the account, sign out (AC7, AC8, AC9) @smoke", async
   await signIn(page, email);
   await expect(page).toHaveURL(/\/account$/);
   await expect(page.getByText(email)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Account" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Account", exact: true })).toBeVisible();
   await expectPageOK(page);
 
   await page.getByRole("button", { name: "Sign out" }).first().click();
@@ -89,6 +89,27 @@ test("change password, old one refused, new one works (AC10)", async ({ page }, 
   await expect(page.getByRole("alert")).toBeVisible();
   await signIn(page, email, "another long password");
   await expect(page).toHaveURL(/\/account$/);
+});
+
+test("delete the account: the wrong password is refused, then it is gone (AC11)", async ({ page }, testInfo) => {
+  const email = `deletable-${testInfo.project.name}@example.test`; // seeded for this, nothing else signs in as it
+  await signIn(page, email);
+  await page.getByRole("link", { name: "Delete account" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Delete your account");
+  await expectPageOK(page);
+  await page.getByLabel(/^Password/).fill("not the password at all");
+  await page.getByRole("button", { name: "Delete my account" }).click();
+  await expect(page.getByRole("alert")).toContainText("password");
+  await expect(page.getByLabel(/^Password/)).toHaveAttribute("aria-invalid", "true");
+  await expectPageOK(page);
+  await page.getByLabel(/^Password/).fill(password);
+  await page.getByRole("button", { name: "Delete my account" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your account has been deleted");
+  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible(); // signed out
+  await expectPageOK(page);
+  await signIn(page, email);
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page).toHaveURL(/\/sign-in$/);
 });
 
 test("signed-in journey by keyboard with visible focus (AC28)", async ({ page }, testInfo) => {

@@ -1,10 +1,12 @@
 package accounts
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -19,6 +21,22 @@ const (
 	argonKeyLen  = 32
 	saltLen      = 16
 )
+
+// hashGate caps how many argon2id computations run at once (each takes 19 MiB),
+// so a burst of sign-ins cannot exhaust memory. A request waits for a slot
+// until its context ends (ADR 0012).
+var hashGate = make(chan struct{}, runtime.NumCPU())
+
+func withHashSlot(ctx context.Context, f func()) error {
+	select {
+	case hashGate <- struct{}{}:
+		defer func() { <-hashGate }()
+		f()
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // hashPassword returns a PHC-encoded argon2id hash.
 func hashPassword(password string) (string, error) {

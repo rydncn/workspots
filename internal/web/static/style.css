@@ -48,3 +48,4 @@ input[type="email"], input[type="password"] { padding: 0.5rem; border: 1px solid
 [aria-invalid="true"] { border-color: #b00020; border-width: 2px; }
 .notice { border-left: 4px solid var(--accent); padding: 0.5rem 1rem; background: #eef3ff; }
 .actions { list-style: none; padding: 0; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+.pages { display: flex; gap: 1.5rem; margin-top: 1.5rem; }

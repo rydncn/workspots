@@ -62,20 +62,31 @@ type Filter struct {
 	Area                                                  string
 	MinWifi, MaxNoise                                     int16 // 0 means any
 	Power, NoTimeLimit, StepFree, AccessibleToilet, Quiet bool
+	Page                                                  int // 1-based; 0 means the first
 }
 
 const spotColumns = `s.id, s.name, s.kind, s.area, s.address, s.opening_hours, s.status, a.report_count,
 	a.wifi, a.noise, a.power, a.time_limit, a.step_free, a.accessible_toilet, a.quiet_space`
 
-// Search returns approved spots matching f, by name. An empty area matches
-// every area; otherwise every word typed must be one of the area's comma- or
-// space-separated words, case-insensitively, so "Leeds, LS6" is found by
-// "leeds", "ls6" and "Leeds, LS6".
-func Search(ctx context.Context, db *pgxpool.Pool, f Filter) ([]Spot, error) {
+// visible is the one definition of which spots a visitor may see, used by
+// every query that returns spots. Slice 4 adds the author and slice 5 the
+// moderators here, and nowhere else.
+const visible = `s.status = 'approved'`
+
+// PageSize is how many spots a search page lists.
+const PageSize = 50
+
+// Search returns one page of visible spots matching f, by name, and whether
+// a further page exists. An empty area matches every area; otherwise every
+// word typed must be one of the area's comma- or space-separated words,
+// case-insensitively, so "Leeds, LS6" is found by "leeds", "ls6" and
+// "Leeds, LS6".
+func Search(ctx context.Context, db *pgxpool.Pool, f Filter) (page []Spot, more bool, err error) {
 	words := strings.Fields(strings.ToLower(strings.NewReplacer(",", " ", ";", " ", "/", " ").Replace(f.Area)))
+	offset := max(f.Page-1, 0) * PageSize
 	rows, err := db.Query(ctx, `SELECT `+spotColumns+`
 		FROM spots s JOIN spot_attributes a ON a.spot_id = s.id
-		WHERE s.status = 'approved'
+		WHERE `+visible+`
 		  AND $1::text[] <@ string_to_array(lower(regexp_replace(s.area, '[,;/]', ' ', 'g')), ' ')
 		  AND a.wifi >= $2
 		  AND ($3 = 0 OR a.noise <= $3)
@@ -84,25 +95,30 @@ func Search(ctx context.Context, db *pgxpool.Pool, f Filter) ([]Spot, error) {
 		  AND (NOT $6 OR a.step_free)
 		  AND (NOT $7 OR a.accessible_toilet)
 		  AND (NOT $8 OR a.quiet_space)
-		ORDER BY s.name, s.id`,
-		words, f.MinWifi, f.MaxNoise, f.Power, f.NoTimeLimit, f.StepFree, f.AccessibleToilet, f.Quiet)
+		ORDER BY s.name, s.id
+		LIMIT $9 OFFSET $10`,
+		words, f.MinWifi, f.MaxNoise, f.Power, f.NoTimeLimit, f.StepFree, f.AccessibleToilet, f.Quiet, PageSize+1, offset)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[Spot])
+	page, err = pgx.CollectRows(rows, pgx.RowToStructByPos[Spot])
+	if len(page) > PageSize { // one extra row was asked for, to know whether a next page exists
+		return page[:PageSize], true, err
+	}
+	return page, false, err
 }
 
-// ListApproved returns every approved spot by name.
+// ListApproved returns the first page of visible spots by name.
 func ListApproved(ctx context.Context, db *pgxpool.Pool) ([]Spot, error) {
-	return Search(ctx, db, Filter{})
+	page, _, err := Search(ctx, db, Filter{})
+	return page, err
 }
 
-// Get returns an approved spot, or ErrSpotNotFound. (Authors and moderators
-// seeing their pending spots comes with accounts.)
+// Get returns a visible spot, or ErrSpotNotFound.
 func Get(ctx context.Context, db *pgxpool.Pool, id int64) (Spot, error) {
 	rows, err := db.Query(ctx, `SELECT `+spotColumns+`
 		FROM spots s JOIN spot_attributes a ON a.spot_id = s.id
-		WHERE s.id = $1 AND s.status = 'approved'`, id)
+		WHERE s.id = $1 AND `+visible, id)
 	if err != nil {
 		return Spot{}, err
 	}

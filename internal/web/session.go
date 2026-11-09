@@ -173,10 +173,20 @@ func (s *server) clientIP(r *http.Request) string {
 	return host
 }
 
-// safeNext returns next if it is one of our own paths, else "/".
+// safeNext returns next if it is one of our own paths, else "/". It parses
+// rather than inspects: no scheme, no host, a path starting with a single
+// slash, and no control character or backslash anywhere (browsers strip tabs
+// and newlines from URLs, so "/\t/evil.example" would become "//evil.example").
 func safeNext(next string) string {
-	if strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") && !strings.ContainsAny(next, "\\\r\n") {
-		return next
+	for _, c := range next {
+		if c < 0x20 || c == 0x7f || c == '\\' {
+			return "/"
+		}
 	}
-	return "/"
+	u, err := url.Parse(next)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "" ||
+		!strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.ContainsAny(u.Path, "\\\t\n\r") {
+		return "/"
+	}
+	return next
 }

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -179,6 +181,13 @@ func TestAC8SignIn(t *testing.T) {
 	if wrong.cookie("__Host-session") != nil {
 		t.Error("a refused sign-in set a session cookie")
 	}
+
+	// A return path that a browser would turn into another site is replaced.
+	evil := a.browser(t)
+	res, _ = evil.post("/sign-in?next=/%09/evil.example", "/sign-in", url.Values{"email": {email}, "password": {goodPassword}})
+	if loc := res.Header.Get("Location"); res.StatusCode != 303 || loc != "/account" {
+		t.Errorf("tab in next: %d -> %q", res.StatusCode, loc)
+	}
 }
 
 // AC9: sign-out ends the session on the server; replaying the cookie is signed out.
@@ -267,6 +276,39 @@ func TestAC12RateLimits(t *testing.T) {
 		}
 		if b.cookie("__Host-session") != nil {
 			t.Error("rate-limited sign-in set a cookie")
+		}
+	})
+	t.Run("concurrent attempts share one count", func(t *testing.T) {
+		// Twenty wrong passwords at once for a fresh address: at most five may
+		// be checked, the rest must be 429 before any hashing.
+		target := unique("race")
+		a.browser(t).signUp(target, goodPassword)
+		var attempts [20]*browser
+		for i := range attempts {
+			attempts[i] = a.browser(t)
+			attempts[i].ip = fmt.Sprintf("10.5.%d.1", i) // IPs differ, so only the address counts
+			attempts[i].get("/sign-in")                  // cookies and token ready before the burst
+		}
+		var wg sync.WaitGroup
+		var checked, limited atomic.Int32
+		for _, b := range attempts {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, page := b.get("/sign-in")
+				token := csrfField.FindStringSubmatch(page)[1]
+				res, _ := b.postRaw("/sign-in", url.Values{"email": {target}, "password": {"wrong password here"}, "csrf": {token}}, "Origin", a.URL)
+				switch res.StatusCode {
+				case 422:
+					checked.Add(1)
+				case 429:
+					limited.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		if checked.Load() != 5 || limited.Load() != 15 {
+			t.Errorf("checked %d, limited %d; want 5 and 15", checked.Load(), limited.Load())
 		}
 	})
 	t.Run("per IP", func(t *testing.T) {

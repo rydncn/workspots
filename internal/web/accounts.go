@@ -60,12 +60,10 @@ func (s *server) signUpPost(w http.ResponseWriter, r *http.Request) {
 		s.invalid(w, r, "sign-up.html", map[string]any{"Email": email}, errs)
 		return
 	}
-	key := "signup:ip:" + s.clientIP(r)
-	if wait := s.limits.retryAfter(key, signUpPerIP); wait > 0 {
+	if wait := s.limits.take("signup:ip:"+s.clientIP(r), signUpPerIP); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
-	s.limits.record(key)
 	created, err := accounts.SignUp(r.Context(), s.db, email, password)
 	if err != nil {
 		s.fail(w, r, err)
@@ -95,14 +93,12 @@ func (s *server) signInPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	addrKey, ipKey := "signin:addr:"+strings.ToLower(email), "signin:ip:"+s.clientIP(r)
-	if wait := max(s.limits.retryAfter(addrKey, signInPerAddress), s.limits.retryAfter(ipKey, signInPerIP)); wait > 0 {
+	if wait := max(s.limits.take(addrKey, signInPerAddress), s.limits.take(ipKey, signInPerIP)); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
 	u, err := accounts.Authenticate(r.Context(), s.db, email, password)
 	if errors.Is(err, accounts.ErrInvalidCredentials) {
-		s.limits.record(addrKey)
-		s.limits.record(ipKey)
 		s.invalid(w, r, "sign-in.html", data, []fieldError{{"", accounts.ErrInvalidCredentials.Error()}})
 		return
 	}
@@ -110,6 +106,8 @@ func (s *server) signInPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.limits.refund(addrKey)
+	s.limits.refund(ipKey)
 	if err := s.signIn(w, r, u); err != nil {
 		s.fail(w, r, err)
 		return
@@ -153,15 +151,13 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key, ipKey := "pwchange:user:"+itoa(u.ID), "pwchange:ip:"+s.clientIP(r)
-	if wait := max(s.limits.retryAfter(key, changePerUser), s.limits.retryAfter(ipKey, signInPerIP)); wait > 0 {
+	if wait := max(s.limits.take(key, changePerUser), s.limits.take(ipKey, signInPerIP)); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
 	err := accounts.ChangePassword(r.Context(), s.db, u.ID, r.PostForm.Get("current"), r.PostForm.Get("password"))
 	switch {
 	case errors.Is(err, accounts.ErrInvalidCredentials):
-		s.limits.record(key)
-		s.limits.record(ipKey)
 		s.invalid(w, r, "password.html", map[string]any{}, []fieldError{{"current", "The current password is not right."}})
 		return
 	case errors.Is(err, accounts.ErrPasswordTooShort), errors.Is(err, accounts.ErrPasswordTooLong):
@@ -171,6 +167,8 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.limits.refund(key)
+	s.limits.refund(ipKey)
 	if err := accounts.EndOtherSessions(r.Context(), s.db, u.ID, currentSession(r).token); err != nil {
 		s.fail(w, r, err)
 		return

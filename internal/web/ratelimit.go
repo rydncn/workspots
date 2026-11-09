@@ -23,29 +23,40 @@ func newLimiter(window time.Duration) *limiter {
 	return &limiter{window: window, events: map[[32]byte][]time.Time{}}
 }
 
-// retryAfter returns 0 when key is under limit, else the seconds until the
-// oldest counted event leaves the window.
-func (l *limiter) retryAfter(key string, limit int) int {
+// take counts one attempt against key and returns 0 if it is within limit,
+// else the seconds until the oldest counted attempt leaves the window. Check
+// and count are one step under the lock, so concurrent attempts cannot all
+// slip through before any is counted; the attempt is counted before the
+// expensive work (the password hash) and refunded if that work succeeds.
+func (l *limiter) take(key string, limit int) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	kept := l.prune(sha256.Sum256([]byte(key)), time.Now())
-	if len(kept) < limit {
-		return 0
-	}
-	return int(l.window.Seconds()-time.Since(kept[0]).Seconds()) + 1
-}
-
-func (l *limiter) record(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	now := time.Now()
 	h := sha256.Sum256([]byte(key))
-	l.events[h] = append(l.events[h], time.Now())
+	kept := l.prune(h, now)
+	if len(kept) >= limit {
+		return int(l.window.Seconds()-now.Sub(kept[0]).Seconds()) + 1
+	}
+	l.events[h] = append(kept, now)
 	// Every so often, forget keys nobody has asked about since their window passed.
 	if l.records++; l.records%1000 == 0 {
-		now := time.Now()
 		for k := range l.events {
 			l.prune(k, now)
 		}
+	}
+	return 0
+}
+
+// refund forgets the most recent attempt against key (it succeeded).
+func (l *limiter) refund(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	h := sha256.Sum256([]byte(key))
+	if n := len(l.events[h]); n > 0 {
+		l.events[h] = l.events[h][:n-1]
+	}
+	if len(l.events[h]) == 0 {
+		delete(l.events, h)
 	}
 }
 

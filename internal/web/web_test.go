@@ -514,6 +514,25 @@ func TestAC2SearchByArea(t *testing.T) {
 	has(t, body, `<option value="4" selected>`)
 }
 
+// Search pages: fifty spots a page, with links to the next and previous page
+// that keep the search.
+func TestSearchIsPaged(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	for i := 0; i < 51; i++ {
+		a.addSpotWith(t, fmt.Sprintf("Spot %03d", i), "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
+	}
+	_, body := get(t, a, "/search?area=leeds&power=0")
+	has(t, body, "Spot 000", "Spot 049", `href="/search?area=leeds&amp;page=2"`)
+	lacks(t, body, "Spot 050")
+	_, body = get(t, a, "/search?area=leeds&page=2")
+	has(t, body, "Spot 050", `href="/search?area=leeds&amp;page=1"`)
+	lacks(t, body, "Spot 049", "page=3")
+	if res, _ := get(t, a, "/search?page=999999"); res.StatusCode != 200 {
+		t.Errorf("far page: %d", res.StatusCode)
+	}
+}
+
 // AC3: filters combine with AND, on the effective attributes (reports over declared).
 func TestAC3FiltersCombine(t *testing.T) {
 	t.Parallel()

@@ -67,9 +67,13 @@ func SignUp(ctx context.Context, db *pgxpool.Pool, email, password string) (crea
 	if err := ValidatePassword(password); err != nil {
 		return false, err
 	}
-	hash, err := hashPassword(password)
-	if err != nil {
+	var hash string
+	var hashErr error
+	if err := withHashSlot(ctx, func() { hash, hashErr = hashPassword(password) }); err != nil {
 		return false, err
+	}
+	if hashErr != nil {
+		return false, hashErr
 	}
 	tag, err := db.Exec(ctx, `INSERT INTO users (email, password_hash) SELECT $1, $2
 		WHERE NOT EXISTS (SELECT 1 FROM users WHERE lower(email) = lower($1))`, email, hash)
@@ -93,14 +97,18 @@ func Authenticate(ctx context.Context, db *pgxpool.Pool, email, password string)
 	var hash string
 	err := db.QueryRow(ctx, `SELECT id, email, role, password_hash FROM users WHERE lower(email) = lower($1)`, email).
 		Scan(&u.ID, &u.Email, &u.Role, &hash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		verifyPassword(dummyHash, password)
-		return User{}, ErrInvalidCredentials
-	}
-	if err != nil {
+	unknown := errors.Is(err, pgx.ErrNoRows)
+	if err != nil && !unknown {
 		return User{}, err
 	}
-	if !verifyPassword(hash, password) {
+	if unknown {
+		hash = dummyHash // same work for an unknown address
+	}
+	var ok bool
+	if err := withHashSlot(ctx, func() { ok = verifyPassword(hash, password) }); err != nil {
+		return User{}, err
+	}
+	if unknown || !ok {
 		return User{}, ErrInvalidCredentials
 	}
 	return u, nil
@@ -159,16 +167,27 @@ func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current
 	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash); err != nil {
 		return err
 	}
-	if len(current) > 1024 || !verifyPassword(hash, current) {
+	if len(current) > 1024 {
+		return ErrInvalidCredentials
+	}
+	var ok bool
+	if err := withHashSlot(ctx, func() { ok = verifyPassword(hash, current) }); err != nil {
+		return err
+	}
+	if !ok {
 		return ErrInvalidCredentials
 	}
 	if err := ValidatePassword(next); err != nil {
 		return err
 	}
-	newHash, err := hashPassword(next)
-	if err != nil {
+	var newHash string
+	var hashErr error
+	if err := withHashSlot(ctx, func() { newHash, hashErr = hashPassword(next) }); err != nil {
 		return err
 	}
-	_, err = db.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, newHash)
+	if hashErr != nil {
+		return hashErr
+	}
+	_, err := db.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, newHash)
 	return err
 }

@@ -23,6 +23,12 @@ var (
 	ErrInvalidStatus = errors.New("a spot is approved or rejected")
 )
 
+// DecidedError is returned for a decision on a spot that is no longer
+// pending: a spot is decided once (docs/design.md, Lifecycles).
+type DecidedError struct{ Status string }
+
+func (e DecidedError) Error() string { return "this spot is already " + e.Status }
+
 // ReportSpotProblem files a problem with a public spot (AC22). What the public
 // can see is the public_spots view (migration 0005), nowhere else.
 func ReportSpotProblem(ctx context.Context, db *pgxpool.Pool, reporterID, spotID int64, reason string) error {
@@ -90,8 +96,10 @@ func moderator(ctx context.Context, db *pgxpool.Pool, actorID int64) error {
 	return err
 }
 
-// SetStatus approves or rejects a spot (AC19); a spot already in that state
-// is nothing to moderate (the lifecycle table in docs/design.md).
+// SetStatus approves or rejects a pending spot (AC19), recording who and
+// when in the same statement. A spot is decided once: the update only moves a
+// pending spot, so of two decisions at once exactly one lands and the other
+// is a DecidedError naming the state (the lifecycle table in docs/design.md).
 func SetStatus(ctx context.Context, db *pgxpool.Pool, actorID, spotID int64, status string) error {
 	if status != "approved" && status != "rejected" {
 		return ErrInvalidStatus
@@ -99,8 +107,40 @@ func SetStatus(ctx context.Context, db *pgxpool.Pool, actorID, spotID int64, sta
 	if err := moderator(ctx, db, actorID); err != nil {
 		return err
 	}
-	tag, err := db.Exec(ctx, `UPDATE spots SET status = $2 WHERE id = $1 AND status <> $2`, spotID, status)
-	return acted(tag.RowsAffected(), err, ErrNothingToModerate)
+	tag, err := db.Exec(ctx, `UPDATE spots SET status = $2, moderated_by = $3, moderated_at = now()
+		WHERE id = $1 AND status = 'pending'`, spotID, status, actorID)
+	if err != nil || tag.RowsAffected() == 1 {
+		return err
+	}
+	var current string
+	err = db.QueryRow(ctx, `SELECT status FROM spots WHERE id = $1`, spotID).Scan(&current)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNothingToModerate
+	}
+	if err != nil {
+		return err
+	}
+	return DecidedError{Status: current}
+}
+
+// Decision is one decided spot in the queue's history.
+type Decision struct {
+	SpotID      int64
+	SpotName    string
+	Status      string
+	ModeratedAt time.Time
+	ModeratedBy string // the moderator's address, or "" once their account is deleted
+}
+
+// Decisions lists the latest decisions, newest first.
+func Decisions(ctx context.Context, db *pgxpool.Pool) ([]Decision, error) {
+	rows, err := db.Query(ctx, `SELECT s.id, s.name, s.status, s.moderated_at, coalesce(u.email, '')
+		FROM spots s LEFT JOIN users u ON u.id = s.moderated_by
+		WHERE s.moderated_at IS NOT NULL ORDER BY s.moderated_at DESC, s.id DESC LIMIT 20`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[Decision])
 }
 
 // HideReport hides a visible report with a reason (AC20).

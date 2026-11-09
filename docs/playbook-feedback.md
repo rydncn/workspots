@@ -49,6 +49,8 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 29. **Gate breaks on a dirty tree are dangerous.** Undoing a planted break with `git checkout -- file` restored the committed version and erased the slice's uncommitted work in that file. Rule 15 should say: commit (or stash) before planting a break, so the restore is `git checkout` of a clean tree.
 
+30. **A lifecycle table written after the code documents its bugs.** Rule 19's catch-up in slice 5 listed the spot lifecycle from `SetStatus` as it stood, so "approved ↔ rejected" went into the design as a decision, and the outside review found it was a defect: two moderators overwriting one pending spot, no record of who decided. Rule 19's "each design names its lifecycles before the acceptance criteria" is right; the changelog's "existing projects: list the lifecycles the code already has" should add "as they *should* be, and make each difference a finding". The question that would have caught it: for each state, what does each action do, and who is told what.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

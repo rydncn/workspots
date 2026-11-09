@@ -31,4 +31,7 @@
   {{end}}
   <form method="post" action="/moderation/problems/{{.ID}}/resolve"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">Mark as resolved</button></form>
 </li>{{end}}</ol>{{else}}<p>No open problems.</p>{{end}}
+<h2>Recent decisions</h2>
+{{if .Decisions}}<ul>{{range .Decisions}}<li><a href="/spots/{{.SpotID}}">{{.SpotName}}</a>: {{.Status}} on <time datetime="{{iso .ModeratedAt}}">{{date .ModeratedAt}}</time> by {{if .ModeratedBy}}{{.ModeratedBy}}{{else}}a deleted account{{end}}</li>{{end}}</ul>
+{{else}}<p>None yet.</p>{{end}}
 {{end}}

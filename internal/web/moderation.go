@@ -49,7 +49,12 @@ func (s *server) renderQueue(w http.ResponseWriter, r *http.Request, status int,
 		s.fail(w, r, err)
 		return
 	}
-	data := map[string]any{"Pending": pending, "Problems": problems}
+	decisions, err := moderation.Decisions(r.Context(), s.db)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	data := map[string]any{"Pending": pending, "Problems": problems, "Decisions": decisions}
 	if errs != nil {
 		s.invalid(w, r, "moderation.html", data, errs)
 		return

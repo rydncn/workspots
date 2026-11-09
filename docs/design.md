@@ -69,7 +69,7 @@ Each thing with stages has one status field, one function that moves it, and one
 
 | Lifecycle | Field | States | Moves | Derived condition, defined once |
 |---|---|---|---|---|
-| Spot | `spots.status` | pending, approved, rejected | `moderation.SetStatus`: pending → approved or rejected; approved ↔ rejected (a moderator reverses a decision); the same state again is refused | Public: the `public_spots` view. Visible to a viewer (public, or own, or moderator): `spots.visible`. |
+| Spot | `spots.status`, with `moderated_by` and `moderated_at` set by the same update | pending, approved, rejected | `moderation.SetStatus`: pending → approved, pending → rejected. Nothing else: a decision is made once, so two moderators cannot overwrite each other and the record of who decided stays true. A second decision is refused with a 409 naming the current state. A wrong decision is undone by the author adding the spot again (slice 6 may add an admin reversal, recorded as a new decision). | Public: the `public_spots` view. Visible to a viewer (public, or own, or moderator): `spots.visible`. |
 | Report | `reports.hidden` (with `hidden_reason`, `hidden_at`) | visible, hidden | `moderation.HideReport`: visible → hidden; hidden again is refused. No unhide: a wrongly hidden report is posted again. | Public: the `public_reports` view; counted in `spot_attributes`. |
 | Problem report | `problem_reports.status` | open, resolved | `moderation.Resolve`: open → resolved; resolved again is refused | On the queue: `moderation.OpenProblems` (`status = 'open'`). |
 | Session | `sessions.expires_at` | live, expired | By time only: `accounts.expired` is the one definition; expired rows are deleted whenever sessions change (`CreateSession`, `EndSession`), never read as live | Live: `NOT expired`, in `accounts.SessionUser`. |
@@ -124,7 +124,7 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC18. Moderation is for moderators.** Given a member and a signed-out visitor, when either opens `/moderation` or posts to any moderation action, then the response is a 403 (member) or 401 (signed out) problem.
 
-**AC19. Approve or reject.** Given a pending spot, when a moderator approves it, then it appears in search; when a moderator rejects it, then it is absent from search and its author sees it marked rejected.
+**AC19. Approve or reject.** Given a pending spot, when a moderator approves it, then it appears in search; when a moderator rejects it, then it is absent from search and its author sees it marked rejected. The decision records who made it and when, and the queue's history shows it. Given a spot that is no longer pending, when any moderator approves or rejects it, then the response is a 409 problem naming its current state and nothing changes; of two decisions made at the same moment, exactly one lands.
 
 **AC20. Hide a report.** Given a visible report, when a moderator hides it with a reason, then it is gone from the spot page, the spot's attributes no longer count it, and the moderation queue shows it hidden.
 

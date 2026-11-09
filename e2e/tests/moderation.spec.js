@@ -53,6 +53,7 @@ test("approve a spot, by keyboard, and reject another (AC19, AC28)", async ({ pa
   await expect(page.getByRole("button", { name: `Reject Reject Me ${stamp}` })).toHaveCount(0);
   await expectPageOK(page);
 
+  await expect(page.getByRole("listitem").filter({ hasText: `Approve Me ${stamp}` })).toContainText(/approved on .* by moderator-/);
   await page.goto("/search?area=halifax");
   await expect(page.getByRole("link", { name: `Approve Me ${stamp}` })).toBeVisible();
   await expect(page.getByRole("link", { name: `Reject Me ${stamp}` })).toHaveCount(0);

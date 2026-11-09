@@ -38,7 +38,8 @@ var (
 		Detail: "One or more fields are missing or not valid; see errors."}
 	unavailable = Problem{Type: "/problems/unavailable", Title: "Service unavailable", Status: 503,
 		Detail: "The service cannot reach its database right now."}
-	tooMany = Problem{Type: "/problems/rate-limited", Title: "Too many attempts", Status: 429,
+	alreadyDecided = Problem{Type: "/problems/already-decided", Title: "Already decided", Status: 409}
+	tooMany        = Problem{Type: "/problems/rate-limited", Title: "Too many attempts", Status: 429,
 		Detail: "Too many attempts in a short time. Wait for the number of seconds in the Retry-After header and try again."}
 )
 
@@ -58,6 +59,12 @@ var domainProblems = []struct {
 // problemFor turns any error into a problem: a mapped domain error into its
 // own, anything else into the generic 500 (its detail goes to the log only).
 func problemFor(err error) Problem {
+	var decided moderation.DecidedError
+	if errors.As(err, &decided) {
+		p := alreadyDecided
+		p.Detail = "This spot is already " + decided.Status + "; another moderator got there first. Reload the queue."
+		return p
+	}
 	for _, m := range domainProblems {
 		if errors.Is(err, m.err) {
 			return m.problem

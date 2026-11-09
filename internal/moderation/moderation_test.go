@@ -78,12 +78,13 @@ func TestLifecycleTransitions(t *testing.T) {
 	_ = admin.QueryRow(ctx, `INSERT INTO users (email, password_hash, role) VALUES ('mod@example.test', 'x', 'moderator') RETURNING id`).Scan(&mod)
 	_ = admin.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ('a@example.test', 'x') RETURNING id`).Scan(&author)
 
-	// to is the state after the action, or "" when the move is refused with ErrNothingToModerate.
+	// to is the state after the action, or "" when the move is refused: a spot
+	// is decided once (DecidedError), the rest is nothing to moderate.
 	table := map[string]map[string]map[string]string{
 		"spot": { // status
 			"pending":  {"approve": "approved", "reject": "rejected"},
-			"approved": {"approve": "", "reject": "rejected"},
-			"rejected": {"approve": "approved", "reject": ""},
+			"approved": {"approve": "", "reject": ""},
+			"rejected": {"approve": "", "reject": ""},
 		},
 		"report": { // hidden
 			"visible": {"hide": "hidden"},
@@ -139,8 +140,10 @@ func TestLifecycleTransitions(t *testing.T) {
 			for action, to := range actions {
 				id, state := put(lifecycle, from)
 				err := act(action, id)
+				var decided moderation.DecidedError
+				refused := errors.Is(err, moderation.ErrNothingToModerate) || (lifecycle == "spot" && errors.As(err, &decided) && decided.Status == from)
 				switch {
-				case to == "" && !errors.Is(err, moderation.ErrNothingToModerate):
+				case to == "" && !refused:
 					t.Errorf("%s %s --%s--> expected refusal, got %v (now %s)", lifecycle, from, action, err, state())
 				case to != "" && (err != nil || state() != to):
 					t.Errorf("%s %s --%s--> %s: err %v, now %s", lifecycle, from, action, to, err, state())

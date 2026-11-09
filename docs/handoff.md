@@ -11,7 +11,7 @@
 
 ## Next: slice 6
 
-AC11 account deletion (everything personal gone, approved spots anonymised, proved in the database; ADR 0011), the Dockerfile and release rehearsal (Caddy with its internal CA, as the design's rehearsal section says), `/security-audit`, the final whole-codebase review briefed from `CLAUDE.md` and the design, and the trial's totals and comparison in `docs/trial-log.md`. Hidden reports keep `hidden_reason` and `hidden_at` (migration 0006); deletion cascades reports, so nothing new to anonymise there.
+AC11 account deletion (everything personal gone, approved spots anonymised, proved in the database; ADR 0011), the Dockerfile and release rehearsal (Caddy with its internal CA, as the design's rehearsal section says), `/security-audit`, the final whole-codebase review briefed from `CLAUDE.md` and the design, and the trial's totals and comparison in `docs/trial-log.md`. Hidden reports keep `hidden_reason` and `hidden_at` (migration 0006); deletion cascades reports, so nothing new to anonymise there. `spots.moderated_by` (migration 0007) is `ON DELETE SET NULL`, so a deleted moderator's decisions stay with no name; the history says "a deleted account". A spot is decided once (design, Lifecycles); if an admin reversal is wanted it is a new decision, not an edit.
 
 ## Environment notes
 

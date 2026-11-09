@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -109,8 +110,31 @@ func TestAC19ApproveOrReject(t *testing.T) {
 	_, body := get(t, a, "/search?area=leeds")
 	has(t, body, "Approve Me Café")
 	lacks(t, body, "Reject Me Café")
+	// The decision is recorded, and the queue's history shows who made it.
+	var by int64
+	var at *string
+	_ = a.admin.QueryRow(context.Background(), `SELECT s.moderated_by, s.moderated_at::text FROM spots s WHERE s.name = 'Approve Me Café'`).Scan(&by, &at)
+	var modID int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM users WHERE email = $1`, mod.email).Scan(&modID)
+	if by != modID || at == nil {
+		t.Errorf("decision recorded as by %d at %v, want by %d", by, at, modID)
+	}
 	_, queue = mod.get("/moderation")
-	lacks(t, queue, "Approve Me Café", "Reject Me Café")
+	lacks(t, queue, `action="/moderation`+approvePath+`/approve"`, `action="/moderation`+rejectPath+`/reject"`)
+	has(t, queue, "Approve Me Café", "Reject Me Café", mod.email, "approved", "rejected")
+	// A spot is decided once: a second decision, either way, is a 409 naming its state.
+	token := csrfField.FindStringSubmatch(queue)[1]
+	for _, c := range []struct{ path, state string }{{approvePath + "/reject", "approved"}, {approvePath + "/approve", "approved"}, {rejectPath + "/approve", "rejected"}} {
+		res, body := mod.postRaw("/moderation"+c.path, url.Values{"csrf": {token}}, "Origin", a.URL, "Accept", "application/json")
+		if p := readProblem(t, res, body); res.StatusCode != 409 || p.Type != "/problems/already-decided" || !strings.Contains(p.Detail, c.state) {
+			t.Errorf("%s: %d %+v", c.path, res.StatusCode, p)
+		}
+	}
+	var status string
+	_ = a.admin.QueryRow(context.Background(), `SELECT status FROM spots WHERE name = 'Approve Me Café'`).Scan(&status)
+	if status != "approved" {
+		t.Errorf("a refused decision changed the status to %q", status)
+	}
 	if _, body := author.get("/account"); !strings.Contains(body, "rejected") {
 		t.Error("author's account page does not say rejected")
 	}
@@ -122,6 +146,43 @@ func TestAC19ApproveOrReject(t *testing.T) {
 	}
 	if res, _ := mod.post("/moderation", "/moderation/spots/999999/approve", url.Values{}); res.StatusCode != 404 {
 		t.Errorf("approving an unknown spot: %d", res.StatusCode)
+	}
+}
+
+// AC19: of two decisions made at once on one pending spot, exactly one lands.
+func TestAC19OneDecisionPerSpot(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	spot := a.addSpotWith(t, "Contested Café", "Leeds", "pending", attrs{Wifi: 2, Noise: 2})
+	mod := staff(t, a, "mod", "moderator")
+	_, queue := mod.get("/moderation")
+	token := csrfField.FindStringSubmatch(queue)[1]
+	const n = 10
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		action := []string{"approve", "reject"}[i%2]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, _ := mod.postRaw(fmt.Sprintf("/moderation/spots/%d/%s", spot, action), url.Values{"csrf": {token}}, "Origin", a.URL, "Accept", "application/json")
+			codes <- res.StatusCode
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	count := map[int]int{}
+	for c := range codes {
+		count[c]++
+	}
+	if count[303] != 1 || count[409] != n-1 {
+		t.Errorf("decisions: %v, want one 303 and %d 409s", count, n-1)
+	}
+	var status string
+	var by *int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT status, moderated_by FROM spots WHERE id = $1`, spot).Scan(&status, &by)
+	if status == "pending" || by == nil {
+		t.Errorf("after the race: %q by %v", status, by)
 	}
 }
 

@@ -57,23 +57,16 @@ func TestAC7SignUp(t *testing.T) {
 			t.Errorf("password %d chars: %d, email kept=%v", len(pw), res.StatusCode, strings.Contains(body, `value="keep@example.test"`))
 		}
 	}
-	// Validation as JSON is a problem with an errors list.
-	req, _ := http.NewRequest(http.MethodPost, a.URL+"/sign-up", strings.NewReader("email=x&password=short"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Origin", a.URL)
-	res2, err := a.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Validation as JSON is a problem with an errors list of field and message.
+	_, page := b.get("/sign-up")
+	token := csrfField.FindStringSubmatch(page)[1]
+	res2, body2 := b.postRaw("/sign-up", url.Values{"email": {"x"}, "password": {"short"}, "csrf": {token}}, "Origin", a.URL, "Accept", "application/json")
 	var p struct {
 		Status int
 		Errors []map[string]string
 	}
-	_ = json.NewDecoder(res2.Body).Decode(&p)
-	res2.Body.Close()
-	if res2.StatusCode != 403 && (res2.StatusCode != 422 || len(p.Errors) == 0) { // 403: no CSRF token, which is also a correct refusal
-		t.Errorf("JSON validation: %d %+v", res2.StatusCode, p)
+	if err := json.Unmarshal([]byte(body2), &p); err != nil || res2.StatusCode != 422 || len(p.Errors) != 2 || p.Errors[0]["field"] != "email" || p.Errors[1]["message"] == "" {
+		t.Errorf("JSON validation: %d %s", res2.StatusCode, body2)
 	}
 }
 
@@ -127,9 +120,25 @@ func TestAC8SignIn(t *testing.T) {
 	if strings.Contains(sessionSet, "Domain=") {
 		t.Errorf("session cookie has a Domain: %s", sessionSet)
 	}
+	var csrfSet string
+	for _, h := range raw {
+		if strings.HasPrefix(h, "__Host-csrf=") {
+			csrfSet = h
+		}
+	}
+	for _, want := range []string{"Secure", "HttpOnly", "SameSite=Lax", "Path=/"} {
+		if !strings.Contains(csrfSet, want) {
+			t.Errorf("csrf cookie lacks %s (sign-in must rotate it): %s", want, csrfSet)
+		}
+	}
 	_, body := b.get("/account")
 	if !strings.Contains(body, email) {
 		t.Error("account page does not show the address")
+	}
+	// Retention: an expired session row is deleted at the next sign-in, not just ignored.
+	if _, err := a.admin.Exec(context.Background(), `INSERT INTO sessions (id, user_id, expires_at)
+		SELECT 'expired-row', id, now() - interval '1 day' FROM users WHERE lower(email) = lower($1)`, email); err != nil {
+		t.Fatal(err)
 	}
 
 	// Signing in again rotates the session and ends the old one.
@@ -143,6 +152,11 @@ func TestAC8SignIn(t *testing.T) {
 	_ = a.admin.QueryRow(context.Background(), `SELECT count(*) FROM sessions s JOIN users u ON u.id = s.user_id WHERE lower(u.email) = lower($1) AND s.expires_at > now()`, email).Scan(&live)
 	if live != 1 {
 		t.Errorf("%d live sessions after re-signing in, want 1", live)
+	}
+	var expired int
+	_ = a.admin.QueryRow(context.Background(), `SELECT count(*) FROM sessions WHERE id = 'expired-row'`).Scan(&expired)
+	if expired != 0 {
+		t.Error("expired session row was not deleted")
 	}
 
 	// Refusals look alike.
@@ -265,6 +279,23 @@ func TestAC12RateLimits(t *testing.T) {
 		}
 		if res, _ := b.signIn(unique("ip"), "wrong password here"); res.StatusCode != 429 {
 			t.Errorf("eleventh attempt: %d", res.StatusCode)
+		}
+	})
+	t.Run("X-Forwarded-For is ignored without a trusted proxy", func(t *testing.T) {
+		plain := newAppWith(t, nil) // no TRUSTED_PROXY: every request is from 127.0.0.1
+		setup := plain.browser(t)
+		setup.signUp(email, goodPassword)
+		for i := 0; i < 10; i++ {
+			b := plain.browser(t)
+			b.ip = fmt.Sprintf("10.9.0.%d", i+1) // would be a fresh IP if the header were trusted
+			if res, _ := b.signIn(unique("xff"), "wrong password here"); res.StatusCode != 422 {
+				t.Fatalf("attempt %d: %d", i+1, res.StatusCode)
+			}
+		}
+		b := plain.browser(t)
+		b.ip = "10.9.0.99"
+		if res, _ := b.signIn(unique("xff"), "wrong password here"); res.StatusCode != 429 {
+			t.Errorf("forged X-Forwarded-For escaped the per-IP limit: %d", res.StatusCode)
 		}
 	})
 	t.Run("sign-up has its own limit", func(t *testing.T) {

@@ -26,7 +26,7 @@ Adapted from the playbook's `templates/rules/api.md` for a Go server that render
 ## Domain errors are named
 
 - Domain packages return sentinel errors named for the domain (`ErrSpotNotFound`, `ErrPermissionDenied`, `ErrPasswordTooShort`) or typed validation errors, never `errors.New("something failed")` at the call site. Wrap with `%w` to add context.
-- Domain code never imports `net/http`. The one mapping in `domainProblems` turns each error into its problem; a new domain error is added there in the same change.
+- Domain code never imports `net/http`. A domain error that ends the request (not found, refused, limited) is mapped once in `domainProblems`, added there in the same change. A domain validation error (`ErrPasswordTooShort`, `ErrInvalidEmail`, a wrong current password) is a field error the handler puts back on the form at 422, or in the `errors` list of the validation problem for a client that doesn't want HTML.
 - Catch an error only to add context, recover or map it at the edge.
 
 ## Pages served to a browser

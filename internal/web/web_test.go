@@ -52,8 +52,15 @@ type app struct {
 	mail  *mail.Recorder
 }
 
-// newApp starts the real server over HTTP against its own migrated database.
+// newApp starts the real server over HTTP against its own migrated database,
+// trusting 127.0.0.1 as a proxy so tests can vary the client IP.
 func newApp(t *testing.T) *app {
+	t.Helper()
+	return newAppWith(t, map[string]string{"TRUSTED_PROXY": "127.0.0.1"})
+}
+
+// newAppWith starts the server with extra environment values.
+func newAppWith(t *testing.T, extra map[string]string) *app {
 	t.Helper()
 	adminURL, appURL := testdb.New(t)
 	ctx := context.Background()
@@ -73,10 +80,11 @@ func newApp(t *testing.T) *app {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	// The test server trusts 127.0.0.1 as a proxy so tests can vary the client IP.
-	cfg, err := config.Load(func(k string) string {
-		return map[string]string{"DATABASE_URL": appURL, "TRUSTED_PROXY": "127.0.0.1"}[k]
-	})
+	env := map[string]string{"DATABASE_URL": appURL}
+	for k, v := range extra {
+		env[k] = v
+	}
+	cfg, err := config.Load(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}

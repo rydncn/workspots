@@ -76,7 +76,17 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - tests (unit): 0 beyond the above; the argon2id round trip and the length rules passed first time.
   - end-to-end: 2. The nav's new links changed the keyboard tab order the browse journey asserted; a "Sign up" locator matched the nav and the page body.
   - gate breaks: CSRF comparison disabled → AC17's token-based refusals fail (the first attempt at this break didn't compile, so proved nothing; redone); sign-in limit raised to 500 → AC12's "sixth attempt" fails; other sessions no longer ended → AC10 fails.
-  - hooks: 0. CI: (first run pending). Fresh-context review: (pending).
+  - hooks: 0.
+  - CI, draft run: 0.
+  - fresh-context review (subagent, about 142k tokens): 8 findings, none must-fix, all fixed with a test where one applies and seen failing first.
+    1. Rate-limit keys were raw addresses and IPs held for the process lifetime; now hashed and dropped when their window empties (unit test).
+    2. Expired sessions were filtered, never deleted, so the 30-day retention was a read-time rule; now deleted at the next sign-in (AC8 test extended).
+    3. The validation problem's `errors` list had `Field`/`Message` keys, not the rule's `field`/`message`; JSON tags added.
+    4. The JSON-validation assertion accepted 403 or 422 and could not fail; rewritten to fetch the token first and assert the list.
+    5. Two simultaneous sign-ups for one address raced to the unique index and the loser got a 500; SQLSTATE 23505 is now "already registered".
+    6. The mail goroutine had no recover; a panicking provider would have taken the process down.
+    7. Rule contradictions: validation errors were mapped on the form rather than in `domainProblems` (rule text amended to say so); password change was limited per account only, now per IP too; `__Host-csrf` flags were asserted nowhere, now in AC8; the current password is checked before the new one is validated.
+    8. The untrusted-proxy branch of `clientIP` was never observed; a test now shows a forged `X-Forwarded-For` cannot escape the per-IP limit.
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

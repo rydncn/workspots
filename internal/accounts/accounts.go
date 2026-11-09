@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -72,6 +73,10 @@ func SignUp(ctx context.Context, db *pgxpool.Pool, email, password string) (crea
 	}
 	tag, err := db.Exec(ctx, `INSERT INTO users (email, password_hash) SELECT $1, $2
 		WHERE NOT EXISTS (SELECT 1 FROM users WHERE lower(email) = lower($1))`, email, hash)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" { // two sign-ups for one address at once: the unique index decides
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
@@ -109,6 +114,10 @@ func CreateSession(ctx context.Context, db *pgxpool.Pool, userID int64) (string,
 		return "", err
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
+	// Retention (docs/design.md): expired sessions are deleted, not just ignored.
+	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE expires_at <= now()`); err != nil {
+		return "", err
+	}
 	_, err := db.Exec(ctx, `INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + $3::interval)`,
 		SessionID(token), userID, SessionLifetime.String())
 	return token, err
@@ -145,15 +154,15 @@ func EndOtherSessions(ctx context.Context, db *pgxpool.Pool, userID int64, keepT
 
 // ChangePassword replaces the password once the current one is confirmed.
 func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current, next string) error {
-	if err := ValidatePassword(next); err != nil {
-		return err
-	}
 	var hash string
 	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash); err != nil {
 		return err
 	}
 	if len(current) > 1024 || !verifyPassword(hash, current) {
 		return ErrInvalidCredentials
+	}
+	if err := ValidatePassword(next); err != nil {
+		return err
 	}
 	newHash, err := hashPassword(next)
 	if err != nil {

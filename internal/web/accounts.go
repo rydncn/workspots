@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -21,7 +22,10 @@ const (
 	changePerUser    = 5
 )
 
-type fieldError struct{ Field, Message string }
+type fieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
 
 // requireUser answers a signed-out request: a redirect to sign in for GET,
 // a 401 problem otherwise. Returns false when the caller should stop.
@@ -148,8 +152,8 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	key := "pwchange:user:" + itoa(u.ID)
-	if wait := s.limits.retryAfter(key, changePerUser); wait > 0 {
+	key, ipKey := "pwchange:user:"+itoa(u.ID), "pwchange:ip:"+s.clientIP(r)
+	if wait := max(s.limits.retryAfter(key, changePerUser), s.limits.retryAfter(ipKey, signInPerIP)); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -157,6 +161,7 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, accounts.ErrInvalidCredentials):
 		s.limits.record(key)
+		s.limits.record(ipKey)
 		s.invalid(w, r, "password.html", map[string]any{}, []fieldError{{"current", "The current password is not right."}})
 		return
 	case errors.Is(err, accounts.ErrPasswordTooShort), errors.Is(err, accounts.ErrPasswordTooLong):
@@ -180,6 +185,11 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 func (s *server) send(r *http.Request, m mail.Message) {
 	ctx := context.WithoutCancel(r.Context())
 	go func() {
+		defer func() { // a panicking provider must not take the process down
+			if v := recover(); v != nil {
+				s.log.ErrorContext(ctx, "mail panic", "kind", m.Kind, "error", fmt.Sprint(v))
+			}
+		}()
 		if err := s.mail.Send(ctx, m); err != nil {
 			s.log.ErrorContext(ctx, "mail failed", "kind", m.Kind, "error", err.Error())
 			return

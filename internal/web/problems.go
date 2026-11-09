@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rydncn/workspots/internal/moderation"
 	"github.com/rydncn/workspots/internal/obs"
 	"github.com/rydncn/workspots/internal/spots"
 )
@@ -47,6 +48,8 @@ var domainProblems = []struct {
 	problem Problem
 }{
 	{spots.ErrSpotNotFound, Problem{Type: "/problems/spot-not-found", Title: "Spot not found", Status: 404, Detail: "There is no spot at this address, or it is awaiting approval."}},
+	{moderation.ErrTargetNotFound, Problem{Type: "/problems/target-not-found", Title: "Nothing to report here", Status: 404, Detail: "There is no spot or report at this address to report a problem with."}},
+	{spots.ErrInvalid, Problem{Type: "/problems/validation", Title: "Some fields need attention", Status: 422, Detail: "The database refused a value the form let through."}},
 }
 
 // problemFor turns any error into a problem: a mapped domain error into its

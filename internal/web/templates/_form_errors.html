@@ -5,3 +5,4 @@
 </div>
 {{end}}{{end}}
 {{define "field_error"}}{{range .Errors}}{{if eq .Field $.Field}}<p class="field-error" id="{{.Field}}-error">{{.Message}}</p>{{end}}{{end}}{{end}}
+{{define "invalid"}}{{range .Errors}}{{if eq .Field $.Field}} aria-describedby="{{.Field}}-error" aria-invalid="true"{{end}}{{end}}{{end}}

@@ -1,0 +1,38 @@
+{{define "title"}}Add a spot: Workspots{{end}}
+{{define "main"}}
+<h1>Add a spot</h1>
+<p>A moderator checks every new spot before it appears in search.</p>
+{{template "errors" .}}
+<form method="post" action="/spots/new" class="stack wide">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" value="{{.Spot.Name}}" maxlength="120" required{{template "invalid" (dict . "name")}}>
+    {{template "field_error" (dict . "name")}}
+  </div>
+  <div class="field">
+    <label for="kind">Kind of place</label>
+    <select id="kind" name="kind"{{template "invalid" (dict . "kind")}}>
+      {{range .Kinds}}<option value="{{.}}"{{if eq . $.Spot.Kind}} selected{{end}}>{{kind .}}</option>{{end}}
+    </select>
+    {{template "field_error" (dict . "kind")}}
+  </div>
+  <div class="field">
+    <label for="area">Town or postcode district <span class="hint">(for example "Leeds, LS6")</span></label>
+    <input id="area" name="area" value="{{.Spot.Area}}" maxlength="80" required{{template "invalid" (dict . "area")}}>
+    {{template "field_error" (dict . "area")}}
+  </div>
+  <div class="field">
+    <label for="address">Address</label>
+    <input id="address" name="address" value="{{.Spot.Address}}" maxlength="200" required{{template "invalid" (dict . "address")}}>
+    {{template "field_error" (dict . "address")}}
+  </div>
+  <div class="field">
+    <label for="opening_hours">Opening hours <span class="hint">(optional)</span></label>
+    <textarea id="opening_hours" name="opening_hours" rows="3" maxlength="500"{{template "invalid" (dict . "opening_hours")}}>{{.Spot.OpeningHours}}</textarea>
+    {{template "field_error" (dict . "opening_hours")}}
+  </div>
+  {{template "attribute_fields" (attrs . .Spot.Attributes)}}
+  <button type="submit">Add spot</button>
+</form>
+{{end}}

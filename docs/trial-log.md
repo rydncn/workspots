@@ -110,6 +110,16 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - Why the automated layers missed the first three: both reviewers read `safeNext` as a path check and did not think about what browsers do to a URL before following it; both saw the limiter and reasoned about one request at a time; neither asked what a burst of sign-ins costs in memory. All three are concurrency or browser-behaviour questions, which neither brief asked for by name.
   - own process: 2. A stacked pull request (#5 on #4's branch) was merged after its base had merged into `main`, so GitHub merged it into the stale branch and `main` missed slice 3; a third pull request (#8) carries the same commits over. Stacking cost a round trip; next time wait for the base to merge, or retarget before merging. A staticcheck failure in a chained shell command stopped the documentation edits but not the commit that followed, so one commit went out with a lint failure and without its records; fixed in the next.
 
+### Slice 4: contribute (PR #9)
+
+- Criteria delivered: AC13, AC14, AC15, AC16, AC22, and AC6's author exception (a pending spot is visible to its author, as "awaiting approval").
+- Sessions: 1, still the first session, continued at Ryan's request after slices 2 and 3; the harness showed roughly 560k tokens by the end of the slice. Wall clock: about 1.5 hours to the draft PR.
+- Defects by layer:
+  - tests (test-first): 0 in the implementation; all five acceptance tests passed on the first run after the handlers existed (each had failed on the missing routes). The visibility rule was already in one place (`spots.visible`, Ryan's slice 3 point), so adding the author took one line and no query diverged.
+  - gate breaks: author dropped from `visible` → AC14 "author's view: 404"; sign-in requirement removed from the add-spot form → AC13 "GET /spots/new: 200". Raising the handler's note limit did **not** fail AC16: the database's `length(note) <= 500` constraint refused the row and the handler mapped it to the same 422, so the handler check and the constraint back each other up and the test cannot tell which one fired. Recorded, not changed.
+  - end-to-end: 3. The browser's own `required` attribute stopped invalid forms before the server saw them, so the server's validation state could not be reached (the test now removes the attribute first, as the accounts test already did for `minlength`); Tab reaches a radio group at its checked member, not its first; and the report journeys added reports to a seeded spot the browse journeys assert attributes on, which turned those journeys red under parallel runs: the report journeys now have their own seeded spot.
+  - hooks: 0. CI: (pending). Fresh-context review: (pending).
+
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)
 - Criteria delivered: AC…

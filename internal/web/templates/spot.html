@@ -1,7 +1,12 @@
 {{define "title"}}{{.Spot.Name}}: Workspots{{end}}
 {{define "main"}}
 <h1>{{.Spot.Name}}</h1>
+{{if ne .Spot.Status "approved"}}<p class="notice" role="status">This spot is {{if eq .Spot.Status "pending"}}awaiting approval{{else}}{{.Spot.Status}}{{end}}: only you and the moderators can see it.</p>{{end}}
 <p>{{kind .Spot.Kind}} in {{.Spot.Area}}. {{.Spot.Address}}</p>
+{{if eq .Spot.Status "approved"}}<ul class="actions">
+  <li><a href="/spots/{{.Spot.ID}}/reports/new">Add a report</a></li>
+  <li><a href="/spots/{{.Spot.ID}}/problems/new">Report a problem with this spot</a></li>
+</ul>{{end}}
 <h2>What it's like for working</h2>
 <p class="muted">{{if .Spot.ReportCount}}From {{.Spot.ReportCount}} {{if eq .Spot.ReportCount 1}}report{{else}}reports{{end}}.{{else}}As described by whoever added it; no reports yet.{{end}}</p>
 <dl class="attrs-list">
@@ -22,6 +27,7 @@
   <li>
     <p><time datetime="{{iso .CreatedAt}}">{{date .CreatedAt}}</time>: Wi-Fi {{.WifiLabel}}, Noise: {{.NoiseLabel}}{{if .Power}}, power{{end}}{{if .TimeLimit}}, time limit{{end}}{{if .StepFree}}, step-free{{end}}{{if .AccessibleToilet}}, accessible toilet{{end}}{{if .Quiet}}, quiet space{{end}}</p>
     {{if .Note}}<p class="note">{{.Note}}</p>{{end}}
+    <p><a href="/reports/{{.ID}}/problems/new" class="small">Report a problem with this report</a></p>
   </li>
 {{end}}
 </ol>

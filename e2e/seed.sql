@@ -4,7 +4,9 @@ INSERT INTO spots (name, kind, area, address, opening_hours, status, wifi, noise
  ('Riverside Café', 'cafe', 'Leeds, LS1', '12 Calls Landing, Leeds LS1 7BR', E'Mon-Fri 7:30-18:00\nSat-Sun 9:00-17:00', 'approved', 3, 2, true, false, true, true, false),
  ('Headingley Library', 'library', 'Leeds, LS6', 'North Lane, Leeds LS6 3HG', 'Mon-Sat 9:00-17:00', 'approved', 4, 1, true, false, true, true, true),
  ('The Extraordinarily Long Named Coworking Space Of Supercalifragilisticexpialidocious Proportions', 'coworking', 'York', '1 Micklegate, York YO1 6JH', '', 'approved', 4, 2, true, true, false, false, true),
- ('Pending Place', 'cafe', 'Leeds', '1 Nowhere St', '', 'pending', 2, 2, false, false, false, false, false);
+ ('Pending Place', 'cafe', 'Leeds', '1 Nowhere St', '', 'pending', 2, 2, false, false, false, false, false),
+ -- For the report journeys, so their reports don't move the attributes the browse journeys assert on.
+ ('Reportable Café', 'cafe', 'Bradford', '9 Market St, Bradford BD1 1AA', 'Daily 8-20', 'approved', 2, 2, true, false, true, false, false);
 
 INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
 SELECT id, 4, 1, true, false, true, true, false, 'Big tables upstairs, sockets along the wall.', false, now() - interval '3 days' FROM spots WHERE name = 'Riverside Café';
@@ -22,3 +24,6 @@ INSERT INTO users (email, password_hash) VALUES
  ('member-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
  ('reader-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
  ('reader-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko');
+INSERT INTO users (email, password_hash) VALUES
+ ('contributor-desktop@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko'),
+ ('contributor-narrow-320@example.test', '$argon2id$v=19$m=19456,t=2,p=1$3HDz/F3fYJvs0Ex/JDZ4gw$Avo7ijU1q/OtFAqZDfN4tuMxYSKrGFBZ6rjpUoky5Ko');

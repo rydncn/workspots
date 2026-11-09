@@ -1,0 +1,9 @@
+{{define "title"}}Search results: Workspots{{end}}
+{{define "main"}}
+<h1>Search</h1>
+{{template "search_form" .}}
+<section aria-labelledby="results">
+<h2 id="results" class="section">{{if .Spots}}{{len .Spots}} matching {{if eq (len .Spots) 1}}spot{{else}}spots{{end}}{{else}}Results{{end}}</h2>
+{{if .Spots}}{{template "spot_list" .Spots}}{{else}}<p>No spots match. Try a nearby area or fewer filters.</p>{{end}}
+</section>
+{{end}}

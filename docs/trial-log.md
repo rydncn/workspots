@@ -42,6 +42,18 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - in CI (throwaway PR #2, second run): gofmt failed the checks job; the planted test failed the Tests job; the random token failed the security job. Not provable locally: govulncheck (database unreachable through the proxy; green in CI).
 - Branch protection on `main` after the first full run (ADR 0010): ruleset active, no bypass, pull request with code owner review, the three jobs required by name; recorded in a comment on PR #1.
 
+### Slice 2: browse and search (PR #3)
+
+- Criteria delivered: AC2, AC3, AC4, AC5, AC6; the AC28 and AC29 harness (axe, 320 pixels, keyboard, JavaScript off) over every page and state in this slice.
+- Sessions: 1, still the first session, continued at Ryan's request; the harness showed roughly 380k tokens by the end of the slice. Wall clock: about 1.5 hours to the draft PR.
+- Defects by layer:
+  - tests (test-first): 1. The AC30 "at least one application table" check was written as exactly one, so migration 0002 failed it; corrected to a minimum.
+  - end-to-end: 2. axe-core cannot run in a page with JavaScript disabled (the whole suite timed out on it); axe now runs on the page's HTML in a separate JavaScript-enabled context, which also covers POST result states later. A strict-mode locator matched two elements.
+  - gate breaks: 1 invalid proof. The first attempt to break the 320-pixel check used an inline `style` attribute, which the CSP blocks, so nothing was wide and the check "passed"; re-broken with a 300-character unbroken word, which it caught.
+  - own process: 1. `git checkout` of a template to undo a planted break reverted the slice's uncommitted changes to it as well; rewritten from the session. Lesson: commit before planting breaks, or plant them in a copy.
+  - hooks: 0. CI: (first run pending). Fresh-context review: (pending).
+- Gates added and broken once: axe (image without alt → `image-alt`), the 320-pixel horizontal-scroll check (unbroken word), the end-to-end assertions (locator failure seen). lockfile-lint ran clean locally. Not provable locally: `npm audit signatures` (the registry's attestation download is blocked by the proxy); proven in CI.
+
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)
 - Criteria delivered: AC…

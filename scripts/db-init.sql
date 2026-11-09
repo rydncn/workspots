@@ -13,7 +13,10 @@ BEGIN
   END IF;
   -- Development and CI only: lets the migrate role end the app role's
   -- connections when a test drops its database (DROP DATABASE ... WITH (FORCE)).
-  GRANT workspots_app TO workspots_migrate;
+  IF NOT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid JOIN pg_roles g ON g.oid = m.member
+                 WHERE r.rolname = 'workspots_app' AND g.rolname = 'workspots_migrate') THEN
+    GRANT workspots_app TO workspots_migrate;
+  END IF;
 END $$;
 SELECT 'CREATE DATABASE workspots_dev OWNER workspots_migrate'
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'workspots_dev') \gexec

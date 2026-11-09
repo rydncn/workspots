@@ -25,3 +25,19 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # Match .npmrc's min-release-age, or Dependabot opens pull requests for
+    # versions npm then refuses to install. Security updates skip the cooldown.
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      e2e:
+        update-types: [minor, patch]

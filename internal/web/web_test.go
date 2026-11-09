@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -286,5 +287,158 @@ func TestAC25CorrelationIDEverywhere(t *testing.T) {
 	res, _ = get(t, a, "/")
 	if got := res.Header.Get("X-Correlation-Id"); !hex32.MatchString(got) {
 		t.Errorf("generated correlation id %q", got)
+	}
+}
+
+// attrs are a spot's declared attributes or a report's ratings.
+type attrs struct {
+	Wifi, Noise                                         int
+	Power, TimeLimit, StepFree, AccessibleToilet, Quiet bool
+}
+
+func (a *app) addSpotWith(t *testing.T, name, area, status string, at attrs) int64 {
+	t.Helper()
+	var id int64
+	err := a.admin.QueryRow(context.Background(),
+		`INSERT INTO spots (name, kind, area, address, opening_hours, status, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space)
+		 VALUES ($1, 'cafe', $2, '1 Test St', 'Mon-Fri 8-18', $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		name, area, status, at.Wifi, at.Noise, at.Power, at.TimeLimit, at.StepFree, at.AccessibleToilet, at.Quiet).Scan(&id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func (a *app) addReport(t *testing.T, spot int64, at attrs, note string, hidden bool, daysAgo int) {
+	t.Helper()
+	_, err := a.admin.Exec(context.Background(),
+		`INSERT INTO reports (spot_id, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space, note, hidden, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() - make_interval(days => $11))`,
+		spot, at.Wifi, at.Noise, at.Power, at.TimeLimit, at.StepFree, at.AccessibleToilet, at.Quiet, note, hidden, daysAgo)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func has(t *testing.T, body string, want ...string) {
+	t.Helper()
+	for _, w := range want {
+		if !strings.Contains(body, w) {
+			t.Errorf("page lacks %q", w)
+		}
+	}
+}
+
+func lacks(t *testing.T, body string, unwanted ...string) {
+	t.Helper()
+	for _, u := range unwanted {
+		if strings.Contains(body, u) {
+			t.Errorf("page shows %q", u)
+		}
+	}
+}
+
+// AC2: search by town or postcode district, case-insensitively; the text is kept.
+func TestAC2SearchByArea(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	a.addSpotWith(t, "Leeds Café", "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
+	a.addSpotWith(t, "Headingley Library", "Leeds, LS6", "approved", attrs{Wifi: 3, Noise: 1})
+	a.addSpotWith(t, "York Lobby", "York", "approved", attrs{Wifi: 3, Noise: 2})
+
+	res, body := get(t, a, "/search?area=leeds")
+	if res.StatusCode != 200 {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	has(t, body, "Leeds Café", "Headingley Library", `value="leeds"`)
+	lacks(t, body, "York Lobby")
+
+	_, body = get(t, a, "/search?area=LS6")
+	has(t, body, "Headingley Library")
+	lacks(t, body, "Leeds Café", "York Lobby")
+}
+
+// AC3: filters combine with AND, on the effective attributes (reports over declared).
+func TestAC3FiltersCombine(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	good := attrs{Wifi: 3, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}
+	a.addSpotWith(t, "Has Everything", "Leeds", "approved", good)
+	a.addSpotWith(t, "No Power", "Leeds", "approved", attrs{Wifi: 4, Noise: 1, Power: false, StepFree: true, AccessibleToilet: true, Quiet: true})
+	a.addSpotWith(t, "Loud Place", "Leeds", "approved", attrs{Wifi: 4, Noise: 3, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true})
+	a.addSpotWith(t, "Time Limited", "Leeds", "approved", attrs{Wifi: 4, Noise: 1, Power: true, TimeLimit: true, StepFree: true, AccessibleToilet: true, Quiet: true})
+	// Declared as good Wi-Fi, but two reports say poor: reports win.
+	reported := a.addSpotWith(t, "Reported Poor Wifi", "Leeds", "approved", good)
+	a.addReport(t, reported, attrs{Wifi: 1, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 2)
+	a.addReport(t, reported, attrs{Wifi: 1, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 1)
+	// Declared as no step-free access, but a report says there is; a hidden report says not.
+	stepFree := a.addSpotWith(t, "Step Free By Report", "Leeds", "approved", attrs{Wifi: 3, Noise: 1, Power: true, StepFree: false, AccessibleToilet: true, Quiet: true})
+	a.addReport(t, stepFree, attrs{Wifi: 3, Noise: 1, Power: true, StepFree: true, AccessibleToilet: true, Quiet: true}, "", false, 1)
+	a.addReport(t, stepFree, attrs{Wifi: 3, Noise: 1, Power: true, StepFree: false, AccessibleToilet: true, Quiet: true}, "", true, 1)
+
+	_, body := get(t, a, "/search?area=leeds&wifi=3&power=1&noise=2&no_time_limit=1&step_free=1&accessible_toilet=1&quiet_space=1")
+	has(t, body, "Has Everything", "Step Free By Report")
+	lacks(t, body, "No Power", "Loud Place", "Time Limited", "Reported Poor Wifi")
+
+	_, body = get(t, a, "/search?area=leeds&power=1")
+	has(t, body, "Has Everything", "Loud Place", "Time Limited", "Reported Poor Wifi", "Step Free By Report")
+	lacks(t, body, "No Power")
+}
+
+// AC4: no match is a 200 page that says so and keeps the search.
+func TestAC4EmptyResultIsAPage(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	a.addSpotWith(t, "Leeds Café", "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
+	res, body := get(t, a, "/search?area=Nowhere&wifi=4&power=1")
+	if res.StatusCode != 200 {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	has(t, body, "No spots match", `value="Nowhere"`, `name="power" value="1" checked`)
+	lacks(t, body, "Leeds Café")
+}
+
+// AC5: a spot page shows its details and visible reports, newest first.
+func TestAC5SpotPage(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	id := a.addSpotWith(t, "Detail Café", "Leeds", "approved", attrs{Wifi: 3, Noise: 2, Power: true})
+	a.addReport(t, id, attrs{Wifi: 4, Noise: 1, Power: true}, "Older visible note", false, 10)
+	a.addReport(t, id, attrs{Wifi: 4, Noise: 1, Power: true}, "Newer visible note", false, 1)
+	a.addReport(t, id, attrs{Wifi: 0, Noise: 3, Power: false}, "Hidden abusive note", true, 0)
+
+	res, body := get(t, a, fmt.Sprintf("/spots/%d", id))
+	if res.StatusCode != 200 {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	has(t, body, "Detail Café", "Mon-Fri 8-18", "Older visible note", "Newer visible note", "Excellent", "Quiet")
+	lacks(t, body, "Hidden abusive note")
+	if strings.Index(body, "Newer visible note") > strings.Index(body, "Older visible note") {
+		t.Error("reports are not newest first")
+	}
+	// Each report carries its date.
+	if n := strings.Count(body, `<time datetime="`); n != 2 {
+		t.Errorf("expected 2 dated reports, found %d", n)
+	}
+}
+
+// AC6: an unknown or pending spot is a 404 problem of type spot-not-found.
+func TestAC6UnknownSpotIsAProblem(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	pending := a.addSpotWith(t, "Pending Place", "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
+	if _, err := a.admin.Exec(context.Background(), `UPDATE spots SET status = 'pending' WHERE id = $1`, pending); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/spots/999999", fmt.Sprintf("/spots/%d", pending), "/spots/not-a-number"} {
+		res, body := get(t, a, path, "Accept", "application/json")
+		p := readProblem(t, res, body)
+		if res.StatusCode != 404 || p.Type != "/problems/spot-not-found" {
+			t.Errorf("%s: got %d %+v", path, res.StatusCode, p)
+		}
+	}
+	res, body := get(t, a, "/spots/999999", "Accept", "text/html")
+	if res.StatusCode != 404 || !strings.Contains(body, "<title>404") {
+		t.Errorf("HTML: %d", res.StatusCode)
 	}
 }

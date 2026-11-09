@@ -16,3 +16,22 @@ footer { color: var(--muted); border-top: 1px solid var(--rule); padding-block: 
 .spots h2 { margin: 0 0 0.25rem; font-size: 1.125rem; overflow-wrap: anywhere; }
 .spots p { margin: 0; color: var(--muted); }
 .problem dt { font-weight: 600; } .problem dd { margin: 0 0 0.5rem; overflow-wrap: anywhere; }
+.search { display: grid; gap: 1rem; margin-block: 1rem 2rem; }
+.field { display: grid; gap: 0.25rem; max-width: 24rem; }
+fieldset { border: 1px solid var(--rule); border-radius: 0.5rem; padding: 0.75rem 1rem; display: grid; gap: 0.75rem; }
+legend { font-weight: 600; padding-inline: 0.25rem; }
+.checks { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); }
+.checks label { display: flex; gap: 0.5rem; align-items: center; }
+input, select, button { font: inherit; min-height: 2.75rem; }
+input[type="search"], select { padding: 0.5rem; border: 1px solid var(--muted); border-radius: 0.25rem; width: 100%; }
+input[type="checkbox"] { width: 1.5rem; height: 1.5rem; min-height: 0; }
+button { background: var(--accent); color: #fff; border: 0; border-radius: 0.25rem; padding: 0.5rem 1.25rem; cursor: pointer; justify-self: start; }
+.section { margin-top: 2rem; }
+.attrs { font-size: 0.9rem; }
+.muted { color: var(--muted); }
+.attrs-list { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); margin: 0; }
+.attrs-list div { border: 1px solid var(--rule); border-radius: 0.5rem; padding: 0.5rem 0.75rem; }
+.attrs-list dt { font-weight: 600; } .attrs-list dd { margin: 0; }
+.hours, .note { white-space: pre-line; overflow-wrap: anywhere; }
+.reports { padding-left: 1.25rem; } .reports li { margin-block: 1rem; }
+h1, h2 { overflow-wrap: anywhere; }

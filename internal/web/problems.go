@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rydncn/workspots/internal/obs"
+	"github.com/rydncn/workspots/internal/spots"
 )
 
 // Problem is an RFC 9457 problem. Type is a stable path per kind of problem.
@@ -31,7 +32,9 @@ var (
 var domainProblems = []struct {
 	err     error
 	problem Problem
-}{}
+}{
+	{spots.ErrSpotNotFound, Problem{Type: "/problems/spot-not-found", Title: "Spot not found", Status: 404, Detail: "There is no spot at this address, or it is awaiting approval."}},
+}
 
 // problemFor turns any error into a problem: a mapped domain error into its
 // own, anything else into the generic 500 (its detail goes to the log only).

@@ -1,0 +1,44 @@
+{{define "search_form"}}
+<form method="get" action="/search" class="search">
+  <div class="field">
+    <label for="area">Town or postcode district</label>
+    <input id="area" name="area" type="search" value="{{.Form.Area}}" maxlength="80" autocomplete="off">
+  </div>
+  <fieldset>
+    <legend>What matters for working</legend>
+    <div class="field">
+      <label for="wifi">Wi-Fi at least</label>
+      <select id="wifi" name="wifi">
+        <option value="0">Any</option>
+        {{range $i, $l := .WifiLabels}}{{if gt $i 0}}<option value="{{$i}}"{{if eq (printf "%d" $i) $.Form.Wifi}} selected{{end}}>{{$l}}</option>{{end}}{{end}}
+      </select>
+    </div>
+    <div class="field">
+      <label for="noise">Noise at most</label>
+      <select id="noise" name="noise">
+        <option value="0">Any</option>
+        {{range $i, $l := .NoiseLabels}}{{if gt $i 0}}<option value="{{$i}}"{{if eq (printf "%d" $i) $.Form.Noise}} selected{{end}}>{{$l}}</option>{{end}}{{end}}
+      </select>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" name="power" value="1"{{if .Form.Power}} checked{{end}}> Power sockets</label>
+      <label><input type="checkbox" name="no_time_limit" value="1"{{if .Form.NoTimeLimit}} checked{{end}}> No seating time limit</label>
+      <label><input type="checkbox" name="step_free" value="1"{{if .Form.StepFree}} checked{{end}}> Step-free entrance</label>
+      <label><input type="checkbox" name="accessible_toilet" value="1"{{if .Form.AccessibleToilet}} checked{{end}}> Accessible toilet</label>
+      <label><input type="checkbox" name="quiet_space" value="1"{{if .Form.Quiet}} checked{{end}}> Quiet space</label>
+    </div>
+  </fieldset>
+  <button type="submit">Search</button>
+</form>
+{{end}}
+{{define "spot_list"}}
+<ul class="spots">
+{{range .}}
+  <li>
+    <h2><a href="/spots/{{.ID}}">{{.Name}}</a></h2>
+    <p>{{kind .Kind}} in {{.Area}}</p>
+    <p class="attrs">Wi-Fi {{.WifiLabel}} · {{.NoiseLabel}}{{if .Power}} · Power{{end}}{{if .StepFree}} · Step-free{{end}}{{if .AccessibleToilet}} · Accessible toilet{{end}}{{if .Quiet}} · Quiet space{{end}}{{if .TimeLimit}} · Time limit{{end}}</p>
+  </li>
+{{end}}
+</ul>
+{{end}}

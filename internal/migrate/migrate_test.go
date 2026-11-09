@@ -69,8 +69,11 @@ func TestAC30AppRolePrivileges(t *testing.T) {
 	count("execute on a new security definer function for workspots_app",
 		`SELECT count(*) FROM (SELECT 1 WHERE has_function_privilege('workspots_app', 'probe_secdef()', 'EXECUTE')) s`, 0)
 	// At least one application table exists, so the checks above checked something (rule 9).
-	count("application tables", `SELECT count(*) FROM information_schema.tables
-		 WHERE table_schema = 'public' AND table_name <> 'schema_migrations'`, 1)
+	var tables int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables
+		 WHERE table_schema = 'public' AND table_name <> 'schema_migrations'`).Scan(&tables); err != nil || tables < 1 {
+		t.Fatalf("application tables: %d, %v", tables, err)
+	}
 }
 
 func TestApplyIsIdempotentAndOrdered(t *testing.T) {

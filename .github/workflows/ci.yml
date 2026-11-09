@@ -114,6 +114,72 @@ jobs:
           ! grep -qE '^(FAIL|--- FAIL)' test.log || { echo "a test failed"; exit 1; }
           ! grep -q 'no test files' <(grep -E '^\?\s' test.log | grep -E 'internal/(web|migrate|config)') || { echo "a package has no tests"; exit 1; }
 
+  e2e:
+    name: End-to-end and accessibility
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: e2e/.nvmrc
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      # Rule 7: prove the .npmrc hardening takes effect. An npm older than
+      # 11.10 ignores min-release-age without a word.
+      - name: npm supply-chain settings take effect
+        working-directory: e2e
+        run: |
+          node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 10)) {
+              console.error("npm " + process.argv[1] + " ignores min-release-age: use npm 11.10 or later.");
+              process.exit(1);
+            }' "$(npm --version)"
+          test "$(npm config get ignore-scripts)" = "true" || { echo "ignore-scripts is not on"; exit 1; }
+          test "$(npm config get min-release-age)" -ge 1 || { echo "min-release-age is not set"; exit 1; }
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm ci
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Create roles and databases
+        run: psql "$DEV_PG" -v ON_ERROR_STOP=1 -f scripts/db-init.sql
+      - name: End-to-end and accessibility tests
+        working-directory: e2e
+        run: npm test 2>&1 | tee e2e.log
+      # Rule 9: the run must have run tests, and not skipped them all.
+      - name: Tests ran
+        working-directory: e2e
+        run: grep -qE '^\s+[1-9][0-9]* passed' e2e.log || { echo "no end-to-end test passed"; exit 1; }
+      - name: Upload failure artefacts
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: playwright-results
+          path: |
+            e2e/test-results
+            e2e/.server.log
+          if-no-files-found: ignore
+
   security:
     name: Dependencies and secrets
     runs-on: ubuntu-latest
@@ -133,6 +199,28 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: e2e/.nvmrc
+      # The e2e lockfile may only point at the npm registry, over HTTPS, with
+      # each resolved URL matching its package name and a sha512 integrity hash.
+      - name: e2e lockfile integrity
+        working-directory: e2e
+        run: >-
+          npx --yes lockfile-lint@5.0.1 --path package-lock.json --type npm
+          --allowed-hosts npm --validate-https --validate-package-names
+          --validate-integrity
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm ci
+      - name: e2e registry signatures
+        working-directory: e2e
+        run: npm audit signatures
+      - name: e2e dependency audit
+        working-directory: e2e
+        run: npm audit --audit-level=high
 
       # gitleaks from its release, checked against a pinned checksum. The same
       # command runs locally: gitleaks git --redact --verbose

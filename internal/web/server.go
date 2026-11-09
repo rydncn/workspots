@@ -43,6 +43,8 @@ func New(d Deps) http.Handler {
 	s := &server{db: d.DB, cfg: d.Config, log: d.Logger, tpl: parseTemplates()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.home)
+	mux.HandleFunc("GET /search", s.search)
+	mux.HandleFunc("GET /spots/{id}", s.spot)
 	mux.HandleFunc("GET /static/{file...}", s.static)
 
 	var h http.Handler = s.routeErrors(mux)
@@ -71,7 +73,7 @@ func (s *server) home(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "home.html", map[string]any{"Spots": list})
+	s.render(w, r, http.StatusOK, "home.html", map[string]any{"Spots": list, "Form": searchForm{}, "WifiLabels": spots.WifiLabels, "NoiseLabels": spots.NoiseLabels})
 }
 
 // fail logs err with the request's correlation ID and answers with its problem.

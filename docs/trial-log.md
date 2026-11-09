@@ -108,7 +108,7 @@ How context is measured: the playbook's context-budget hook reads the transcript
     4. Spot visibility was decided in two queries (`status = 'approved'` in both `Search` and `Get`), the pattern that diverges when slices 4 and 5 add the author and moderator exceptions; now one `visible` constant that both queries use.
     5. Search had no limit; now fifty a page with next and previous links that keep the search, tested with fifty-one spots.
   - Why the automated layers missed the first three: both reviewers read `safeNext` as a path check and did not think about what browsers do to a URL before following it; both saw the limiter and reasoned about one request at a time; neither asked what a burst of sign-ins costs in memory. All three are concurrency or browser-behaviour questions, which neither brief asked for by name.
-  - own process: 1. A staticcheck failure in a chained shell command stopped the documentation edits but not the commit that followed, so one commit went out with a lint failure and without its records; fixed in the next.
+  - own process: 2. A stacked pull request (#5 on #4's branch) was merged after its base had merged into `main`, so GitHub merged it into the stale branch and `main` missed slice 3; a third pull request (#6) carries the same commits over. Stacking cost a round trip; next time wait for the base to merge, or retarget before merging. A staticcheck failure in a chained shell command stopped the documentation edits but not the commit that followed, so one commit went out with a lint failure and without its records; fixed in the next.
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

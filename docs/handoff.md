@@ -4,7 +4,7 @@
 
 ## Where the work is
 
-- Slice 1 merged (PR #1). Slice 2 is PR #4 (ready, green, unmerged). Slice 3 (accounts) is PR #5, stacked on #4, ready and green, with its fresh-context review, the whole-codebase review after slice 3 and Ryan's outside review (open redirect via a tab, rate-limit race, uncapped argon2id, one visibility rule, search paging) all fixed and recorded on the PR and in the trial log. When #4 merges, retarget #5 to `main`.
+- Slice 1 merged (PR #1), slice 2 merged (PR #4). Slice 3 (PR #5) merged into the slice 2 branch rather than `main`, because #4 had merged first; PR #6 carries it to `main`. Check `git log origin/main` shows `0003_accounts.sql` before starting slice 4. Slice 3 was with its fresh-context review, the whole-codebase review after slice 3 and Ryan's outside review (open redirect via a tab, rate-limit race, uncapped argon2id, one visibility rule, search paging) all fixed and recorded on the PR and in the trial log.
 - Slice 4 note: `spots.visible` is the one place that says which spots a visitor may see; extend it (viewer id for the author, role for moderators) rather than adding conditions to a query. Review briefs for anything touching auth should ask by name: what does the browser do to this value, what happens when twenty of these arrive at once, what does one of these cost.
 - `docs/trial-log.md` has slices 0 to 3; `docs/playbook-feedback.md` has 25 items. Commit the log before planting breaks or branching for anything disposable.
 - `scripts/dev-db.sh` first in every session; then `go test ./...` and `cd e2e && npm ci && npm test` work with no further setup. e2e signs in as seeded members (`e2e/seed.sql`); only one journey signs up, because sign-up is rate limited per IP.

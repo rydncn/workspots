@@ -1,0 +1,33 @@
+{{define "title"}}Moderation: Workspots{{end}}
+{{define "main"}}
+<h1>Moderation</h1>
+{{template "errors" .}}
+<h2>Spots awaiting approval</h2>
+{{if .Pending}}<ul class="spots">{{range .Pending}}<li>
+  <h3><a href="/spots/{{.ID}}">{{.Name}}</a></h3>
+  <p>{{kind .Kind}} in {{.Area}}. {{.Address}}</p>
+  <ul class="actions">
+    <li><form method="post" action="/moderation/spots/{{.ID}}/approve"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">Approve {{.Name}}</button></form></li>
+    <li><form method="post" action="/moderation/spots/{{.ID}}/reject"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">Reject {{.Name}}</button></form></li>
+  </ul>
+</li>{{end}}</ul>{{else}}<p>Nothing is waiting.</p>{{end}}
+<h2>Problems reported</h2>
+{{if .Problems}}<ol class="reports">{{range .Problems}}<li>
+  <p><time datetime="{{iso .CreatedAt}}">{{date .CreatedAt}}</time>: {{if .ReportID}}a report on{{else}}the spot{{end}} <a href="/spots/{{.SpotID}}">{{.SpotName}}</a></p>
+  <p class="note">{{.Reason}}</p>
+  {{if .ReportID}}
+    {{if .Hidden}}<p class="notice" role="status">Hidden{{if .HiddenReason}}: {{.HiddenReason}}{{end}}</p>
+    {{else}}<p class="muted">The report says: {{if .ReportNote}}{{.ReportNote}}{{else}}(no note){{end}}</p>
+    <form method="post" action="/moderation/reports/{{.ReportID}}/hide" class="stack">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <div class="field">
+        <label for="reason-{{.ID}}">Why hide this report?</label>
+        <input id="reason-{{.ID}}" name="reason" maxlength="500" required{{template "invalid" (dict $ "reason")}}>
+        {{template "field_error" (dict $ "reason")}}
+      </div>
+      <button type="submit">Hide report</button>
+    </form>{{end}}
+  {{end}}
+  <form method="post" action="/moderation/problems/{{.ID}}/resolve"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">Mark as resolved</button></form>
+</li>{{end}}</ol>{{else}}<p>No open problems.</p>{{end}}
+{{end}}

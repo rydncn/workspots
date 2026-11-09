@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rydncn/workspots/internal/accounts"
 	"github.com/rydncn/workspots/internal/moderation"
 	"github.com/rydncn/workspots/internal/obs"
 	"github.com/rydncn/workspots/internal/spots"
@@ -49,6 +50,7 @@ var domainProblems = []struct {
 }{
 	{spots.ErrSpotNotFound, Problem{Type: "/problems/spot-not-found", Title: "Spot not found", Status: 404, Detail: "There is no spot at this address, or it is awaiting approval."}},
 	{moderation.ErrTargetNotFound, Problem{Type: "/problems/target-not-found", Title: "Nothing to report here", Status: 404, Detail: "There is no spot or report at this address to report a problem with."}},
+	{accounts.ErrPermissionDenied, Problem{Type: "/problems/forbidden", Title: "Not allowed", Status: 403, Detail: "Your account does not have permission to do this."}},
 	{spots.ErrInvalid, Problem{Type: "/problems/validation", Title: "Some fields need attention", Status: 422, Detail: "The database refused a value the form let through."}},
 }
 

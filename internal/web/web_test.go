@@ -98,10 +98,11 @@ func newAppWith(t *testing.T, extra map[string]string) *app {
 
 // browser is one person's cookie jar.
 type browser struct {
-	t  *testing.T
-	a  *app
-	c  *http.Client
-	ip string
+	t     *testing.T
+	a     *app
+	c     *http.Client
+	ip    string
+	email string // who signedIn made this browser
 }
 
 func (a *app) browser(t *testing.T) *browser {

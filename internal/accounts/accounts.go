@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,7 +25,13 @@ var (
 	ErrPasswordTooLong    = errors.New("the password must be at most 1,024 bytes")
 	ErrInvalidCredentials = errors.New("the email address or password is not right")
 	ErrSessionNotFound    = errors.New("session not found")
+	ErrPermissionDenied   = errors.New("you do not have permission to do this")
+	ErrInvalidRole        = errors.New("that is not a role")
+	ErrUserNotFound       = errors.New("no account has that address")
 )
+
+// Roles a user can have, as the database constraint lists them.
+var Roles = []string{"member", "moderator", "admin"}
 
 // SessionLifetime is how long a session lasts from sign-in (docs/design.md, retention).
 const SessionLifetime = 30 * 24 * time.Hour
@@ -190,4 +197,32 @@ func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current
 	}
 	_, err := db.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, newHash)
 	return err
+}
+
+// SetRole lets an admin give the account at email a role (AC21).
+func SetRole(ctx context.Context, db *pgxpool.Pool, actorID int64, email, role string) error {
+	var admin bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND role = 'admin')`, actorID).Scan(&admin); err != nil {
+		return err
+	}
+	if !admin {
+		return ErrPermissionDenied
+	}
+	return GrantRole(ctx, db, email, role)
+}
+
+// GrantRole gives the account at email a role with no check on who asks: the
+// operator's grant-role command, which makes the first admin.
+func GrantRole(ctx context.Context, db *pgxpool.Pool, email, role string) error {
+	if !slices.Contains(Roles, role) {
+		return ErrInvalidRole
+	}
+	tag, err := db.Exec(ctx, `UPDATE users SET role = $2 WHERE lower(email) = lower($1)`, email, role)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
 }

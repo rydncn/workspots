@@ -1,0 +1,21 @@
+{{define "title"}}Roles: Workspots{{end}}
+{{define "main"}}
+<h1>Roles</h1>
+{{if .Changed}}<p class="notice" role="status">{{.Email}} is now a {{.Changed}}.</p>{{end}}
+<p>Members add spots and reports; moderators also approve, reject and hide; admins also set roles.</p>
+{{template "errors" .}}
+<form method="post" action="/admin/users" class="stack">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="field">
+    <label for="email">Email address of the account</label>
+    <input id="email" name="email" type="email" autocomplete="off" required value="{{.Email}}"{{template "invalid" (dict . "email")}}>
+    {{template "field_error" (dict . "email")}}
+  </div>
+  <div class="field">
+    <label for="role">Role</label>
+    <select id="role" name="role"{{template "invalid" (dict . "role")}}>{{range .Roles}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+    {{template "field_error" (dict . "role")}}
+  </div>
+  <button type="submit">Set role</button>
+</form>
+{{end}}

@@ -205,6 +205,17 @@ func Mine(ctx context.Context, db *pgxpool.Pool, userID int64) ([]Spot, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Spot])
 }
 
+// Pending lists the spots awaiting approval, oldest first, for the queue.
+func Pending(ctx context.Context, db *pgxpool.Pool) ([]Spot, error) {
+	rows, err := db.Query(ctx, `SELECT `+spotColumns+`
+		FROM spots s JOIN spot_attributes a ON a.spot_id = s.id
+		WHERE s.status = 'pending' ORDER BY s.created_at, s.id`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[Spot])
+}
+
 // constraint turns a check-constraint violation (SQLSTATE 23514) into
 // ErrInvalid; the handler validated first, so this is the backstop.
 func constraint(err error) error {

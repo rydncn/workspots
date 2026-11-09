@@ -1,0 +1,313 @@
+package web_test
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// staff signs in a fresh member and gives them role directly in the database.
+func staff(t *testing.T, a *app, prefix, role string) *browser {
+	t.Helper()
+	b := signedIn(t, a, prefix)
+	a.setRole(t, b.email, role)
+	return b
+}
+
+func (a *app) setRole(t *testing.T, email, role string) {
+	t.Helper()
+	if _, err := a.admin.Exec(context.Background(), `UPDATE users SET role = $2 WHERE email = $1`, email, role); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (a *app) role(t *testing.T, email string) string {
+	t.Helper()
+	var role string
+	if err := a.admin.QueryRow(context.Background(), `SELECT role FROM users WHERE email = $1`, email).Scan(&role); err != nil {
+		t.Fatal(err)
+	}
+	return role
+}
+
+// AC18: moderation is for moderators. A visitor gets a 401 problem, a member
+// a 403, on the page and on every action; nothing changes.
+func TestAC18ModerationIsForModerators(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	spot := a.addSpotWith(t, "Pending Café", "Leeds", "pending", attrs{Wifi: 3, Noise: 2})
+	open := a.addSpotWith(t, "Open Café", "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
+	a.addReport(t, open, attrs{Wifi: 3, Noise: 2}, "A note", false, 1)
+	var report int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM reports WHERE spot_id = $1`, open).Scan(&report)
+	var problem int64
+	_ = a.admin.QueryRow(context.Background(), `INSERT INTO problem_reports (report_id, reporter_id, reason) VALUES ($1, $2, 'spam') RETURNING id`, report, a.seeder).Scan(&problem)
+	actions := []string{
+		fmt.Sprintf("/moderation/spots/%d/approve", spot), fmt.Sprintf("/moderation/spots/%d/reject", spot),
+		fmt.Sprintf("/moderation/reports/%d/hide", report), fmt.Sprintf("/moderation/problems/%d/resolve", problem),
+	}
+	for _, who := range []struct {
+		name string
+		b    *browser
+		want int
+		typ  string
+	}{
+		{"visitor", a.browser(t), 401, "/problems/sign-in-required"},
+		{"member", signedIn(t, a, "member"), 403, "/problems/forbidden"},
+	} {
+		res, _ := who.b.get("/moderation")
+		if res.StatusCode != who.want {
+			t.Errorf("%s GET /moderation: %d", who.name, res.StatusCode)
+		}
+		_, page := who.b.get("/sign-in")
+		token := csrfField.FindStringSubmatch(page)[1] // valid for this browser, so the role check answers, not CSRF
+		for _, path := range actions {
+			res, body := who.b.postRaw(path, url.Values{"csrf": {token}, "reason": {"because"}}, "Origin", a.URL, "Accept", "application/json")
+			if p := readProblem(t, res, body); res.StatusCode != who.want || p.Type != who.typ {
+				t.Errorf("%s POST %s: %d %+v", who.name, path, res.StatusCode, p)
+			}
+		}
+	}
+	var changed int
+	_ = a.admin.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM spots WHERE status <> 'pending' AND id = $1)
+		+ (SELECT count(*) FROM reports WHERE hidden) + (SELECT count(*) FROM problem_reports WHERE status <> 'open')`, spot).Scan(&changed)
+	if changed != 0 {
+		t.Errorf("a refused action changed %d rows", changed)
+	}
+	if res, body := staff(t, a, "mod", "moderator").get("/moderation"); res.StatusCode != 200 || !strings.Contains(body, "Pending Café") {
+		t.Errorf("moderator's queue: %d", res.StatusCode)
+	}
+}
+
+// AC19 (and AC6's moderator exception): approving puts a spot in search;
+// rejecting keeps it out and tells its author.
+func TestAC19ApproveOrReject(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	author := signedIn(t, a, "author")
+	res, _ := author.post("/spots/new", "/spots/new", spotForm("Approve Me Café"))
+	approvePath := res.Header.Get("Location")
+	res, _ = author.post("/spots/new", "/spots/new", spotForm("Reject Me Café"))
+	rejectPath := res.Header.Get("Location")
+	mod := staff(t, a, "mod", "moderator")
+
+	if res, _ := mod.get(approvePath); res.StatusCode != 200 {
+		t.Errorf("moderator's view of a pending spot: %d (AC6)", res.StatusCode)
+	}
+	_, queue := mod.get("/moderation")
+	has(t, queue, "Approve Me Café", "Reject Me Café", `action="/moderation`+approvePath+`/approve"`)
+	if res, _ := mod.post("/moderation", "/moderation"+approvePath+"/approve", url.Values{}); res.StatusCode != 303 || res.Header.Get("Location") != "/moderation" {
+		t.Fatalf("approve: %d -> %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	if res, _ := mod.post("/moderation", "/moderation"+rejectPath+"/reject", url.Values{}); res.StatusCode != 303 {
+		t.Fatalf("reject: %d", res.StatusCode)
+	}
+	has(t, a.logs.String(), `"msg":"spot approved"`, `"msg":"spot rejected"`)
+	_, body := get(t, a, "/search?area=leeds")
+	has(t, body, "Approve Me Café")
+	lacks(t, body, "Reject Me Café")
+	// The decision is recorded, and the queue's history shows who made it.
+	var by int64
+	var at *string
+	_ = a.admin.QueryRow(context.Background(), `SELECT s.moderated_by, s.moderated_at::text FROM spots s WHERE s.name = 'Approve Me Café'`).Scan(&by, &at)
+	var modID int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM users WHERE email = $1`, mod.email).Scan(&modID)
+	if by != modID || at == nil {
+		t.Errorf("decision recorded as by %d at %v, want by %d", by, at, modID)
+	}
+	_, queue = mod.get("/moderation")
+	lacks(t, queue, `action="/moderation`+approvePath+`/approve"`, `action="/moderation`+rejectPath+`/reject"`)
+	has(t, queue, "Approve Me Café", "Reject Me Café", mod.email, "approved", "rejected")
+	// A spot is decided once: a second decision, either way, is a 409 naming its state.
+	token := csrfField.FindStringSubmatch(queue)[1]
+	for _, c := range []struct{ path, state string }{{approvePath + "/reject", "approved"}, {approvePath + "/approve", "approved"}, {rejectPath + "/approve", "rejected"}} {
+		res, body := mod.postRaw("/moderation"+c.path, url.Values{"csrf": {token}}, "Origin", a.URL, "Accept", "application/json")
+		if p := readProblem(t, res, body); res.StatusCode != 409 || p.Type != "/problems/already-decided" || !strings.Contains(p.Detail, c.state) {
+			t.Errorf("%s: %d %+v", c.path, res.StatusCode, p)
+		}
+	}
+	var status string
+	_ = a.admin.QueryRow(context.Background(), `SELECT status FROM spots WHERE name = 'Approve Me Café'`).Scan(&status)
+	if status != "approved" {
+		t.Errorf("a refused decision changed the status to %q", status)
+	}
+	if _, body := author.get("/account"); !strings.Contains(body, "rejected") {
+		t.Error("author's account page does not say rejected")
+	}
+	if res, body := author.get(rejectPath); res.StatusCode != 200 || !strings.Contains(body, "rejected") {
+		t.Errorf("author's view of the rejected spot: %d, says rejected: %v", res.StatusCode, strings.Contains(body, "rejected"))
+	}
+	if res, _ := a.browser(t).get(rejectPath); res.StatusCode != 404 {
+		t.Errorf("visitor sees a rejected spot: %d", res.StatusCode)
+	}
+	if res, _ := mod.post("/moderation", "/moderation/spots/999999/approve", url.Values{}); res.StatusCode != 404 {
+		t.Errorf("approving an unknown spot: %d", res.StatusCode)
+	}
+}
+
+// AC19: of two decisions made at once on one pending spot, exactly one lands.
+func TestAC19OneDecisionPerSpot(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	spot := a.addSpotWith(t, "Contested Café", "Leeds", "pending", attrs{Wifi: 2, Noise: 2})
+	mod := staff(t, a, "mod", "moderator")
+	_, queue := mod.get("/moderation")
+	token := csrfField.FindStringSubmatch(queue)[1]
+	const n = 10
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		action := []string{"approve", "reject"}[i%2]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, _ := mod.postRaw(fmt.Sprintf("/moderation/spots/%d/%s", spot, action), url.Values{"csrf": {token}}, "Origin", a.URL, "Accept", "application/json")
+			codes <- res.StatusCode
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	count := map[int]int{}
+	for c := range codes {
+		count[c]++
+	}
+	if count[303] != 1 || count[409] != n-1 {
+		t.Errorf("decisions: %v, want one 303 and %d 409s", count, n-1)
+	}
+	var status string
+	var by *int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT status, moderated_by FROM spots WHERE id = $1`, spot).Scan(&status, &by)
+	if status == "pending" || by == nil {
+		t.Errorf("after the race: %q by %v", status, by)
+	}
+}
+
+// AC20: a hidden report leaves the spot page and the spot's attributes; the
+// queue shows it hidden with the reason.
+func TestAC20HideAReport(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	spot := a.addSpotWith(t, "Hide Café", "Leeds", "approved", attrs{Wifi: 1, Noise: 2})
+	a.addReport(t, spot, attrs{Wifi: 2, Noise: 2}, "Honest note", false, 2)
+	a.addReportBy(t, a.seedMember(t), spot, attrs{Wifi: 4, Noise: 2}, "SPAMMY NOTE", false, 1)
+	var report int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM reports WHERE note = 'SPAMMY NOTE'`).Scan(&report)
+	a.addReportBy(t, a.seedMember(t), spot, attrs{Wifi: 4, Noise: 2}, "Second flagged note", false, 0)
+	var other int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM reports WHERE note = 'Second flagged note'`).Scan(&other)
+	flagger := signedIn(t, a, "flagger")
+	for _, id := range []int64{report, other} {
+		flagPath := fmt.Sprintf("/reports/%d/problems/new", id)
+		if res, _ := flagger.post(flagPath, flagPath, url.Values{"reason": {"Advertising."}}); res.StatusCode != 200 {
+			t.Fatalf("flag: %d", res.StatusCode)
+		}
+	}
+	_, page := get(t, a, fmt.Sprintf("/spots/%d", spot))
+	has(t, page, "SPAMMY NOTE", "<dd>Excellent</dd>") // median of 2, 4 and 4
+
+	mod := staff(t, a, "mod", "moderator")
+	_, queue := mod.get("/moderation")
+	has(t, queue, "SPAMMY NOTE", "Advertising.", "Hide Café")
+	lacks(t, queue, "Hidden")
+	hidePath := fmt.Sprintf("/moderation/reports/%d/hide", report)
+	res, body := mod.post("/moderation", hidePath, url.Values{"reason": {""}})
+	if res.StatusCode != 422 {
+		t.Errorf("hiding without a reason: %d", res.StatusCode)
+	}
+	// Two hide forms are on the page: only the posted one is marked invalid, with ids that are unique and linked.
+	errID := fmt.Sprintf(`id="reason-%d-error"`, report)
+	if strings.Count(body, "aria-invalid") != 1 || strings.Count(body, errID) != 1 || !strings.Contains(body, fmt.Sprintf(`href="#reason-%d"`, report)) {
+		t.Errorf("422 page: %d aria-invalid, %d %s", strings.Count(body, "aria-invalid"), strings.Count(body, errID), errID)
+	}
+	if _, page := get(t, a, fmt.Sprintf("/spots/%d", spot)); !strings.Contains(page, "SPAMMY NOTE") {
+		t.Error("a refused hide hid the report")
+	}
+	if res, _ := mod.post("/moderation", hidePath, url.Values{"reason": {"Advertising, not a report."}}); res.StatusCode != 303 {
+		t.Fatalf("hide: %d", res.StatusCode)
+	}
+	_, page = get(t, a, fmt.Sprintf("/spots/%d", spot))
+	lacks(t, page, "SPAMMY NOTE")
+	has(t, page, "Honest note", "<dd>Good</dd>", "From 2 reports") // median of 2 and 4 is 3, good
+	_, queue = mod.get("/moderation")
+	has(t, queue, "Hidden", "Advertising, not a report.")
+	var reason string
+	var hiddenAt *string
+	_ = a.admin.QueryRow(context.Background(), `SELECT hidden_reason, hidden_at::text FROM reports WHERE id = $1 AND hidden`, report).Scan(&reason, &hiddenAt)
+	if reason != "Advertising, not a report." || hiddenAt == nil {
+		t.Errorf("row: reason %q, hidden_at %v", reason, hiddenAt)
+	}
+	res, body = mod.postRaw(hidePath, url.Values{"reason": {"again"}, "csrf": {csrfField.FindStringSubmatch(queue)[1]}}, "Origin", a.URL, "Accept", "application/json")
+	if p := readProblem(t, res, body); res.StatusCode != 404 || p.Type != "/problems/nothing-to-moderate" {
+		t.Errorf("hiding a hidden report: %d %+v", res.StatusCode, p)
+	}
+	has(t, a.logs.String(), `"msg":"report hidden"`)
+	// Resolving the problem takes it off the queue.
+	var problem int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM problem_reports WHERE report_id = $1`, report).Scan(&problem)
+	if res, _ := mod.post("/moderation", fmt.Sprintf("/moderation/problems/%d/resolve", problem), url.Values{}); res.StatusCode != 303 {
+		t.Fatalf("resolve: %d", res.StatusCode)
+	}
+	_, queue = mod.get("/moderation")
+	lacks(t, queue, "Advertising, not a report.")
+}
+
+// AC21: only an admin changes roles.
+func TestAC21OnlyAnAdminChangesRoles(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	member := signedIn(t, a, "member")
+	mod := staff(t, a, "mod", "moderator")
+	admin := staff(t, a, "admin", "admin")
+
+	for _, who := range []struct {
+		name string
+		b    *browser
+		want int
+	}{{"visitor", a.browser(t), 401}, {"member", member, 403}, {"moderator", mod, 403}} {
+		if res, _ := who.b.get("/admin/users"); res.StatusCode != who.want {
+			t.Errorf("%s GET /admin/users: %d", who.name, res.StatusCode)
+		}
+		_, page := who.b.get("/sign-in")
+		token := csrfField.FindStringSubmatch(page)[1]
+		res, body := who.b.postRaw("/admin/users", url.Values{"csrf": {token}, "email": {member.email}, "role": {"admin"}}, "Origin", a.URL, "Accept", "application/json")
+		if res.StatusCode != who.want {
+			t.Errorf("%s POST /admin/users: %d %s", who.name, res.StatusCode, body)
+		}
+	}
+	if got := a.role(t, member.email); got != "member" {
+		t.Fatalf("role after refused changes: %q", got)
+	}
+	if res, _ := member.get("/moderation"); res.StatusCode != 403 {
+		t.Fatalf("member before promotion: %d", res.StatusCode)
+	}
+	res, body := admin.post("/admin/users", "/admin/users", url.Values{"email": {member.email}, "role": {"moderator"}})
+	if res.StatusCode != 200 || !strings.Contains(body, member.email) || !strings.Contains(body, "moderator") {
+		t.Fatalf("promote: %d", res.StatusCode)
+	}
+	if got := a.role(t, member.email); got != "moderator" {
+		t.Errorf("role after promotion: %q", got)
+	}
+	if res, _ := member.get("/moderation"); res.StatusCode != 401 {
+		t.Errorf("a change of privilege keeps the old session: %d", res.StatusCode)
+	}
+	if res, _ := member.signIn(member.email, goodPassword); res.StatusCode != 303 {
+		t.Fatalf("sign in after promotion: %d", res.StatusCode)
+	}
+	if res, _ := member.get("/moderation"); res.StatusCode != 200 {
+		t.Errorf("new moderator opens /moderation: %d", res.StatusCode)
+	}
+	has(t, a.logs.String(), `"msg":"role changed"`)
+	lacks(t, a.logs.String(), member.email)
+	if res, _ := admin.post("/admin/users", "/admin/users", url.Values{"email": {member.email}, "role": {"owner"}}); res.StatusCode != 422 {
+		t.Errorf("unknown role: %d", res.StatusCode)
+	}
+	if res, body := admin.post("/admin/users", "/admin/users", url.Values{"email": {"nobody@example.test"}, "role": {"admin"}}); res.StatusCode != 422 || !strings.Contains(body, "No account") {
+		t.Errorf("unknown address: %d", res.StatusCode)
+	}
+}
+
+var _ = http.StatusOK

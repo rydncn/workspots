@@ -14,6 +14,8 @@
     <ul class="nav-links">
     {{if .User}}
       <li><a href="/account">Account</a></li>
+      {{if or (eq .User.Role "moderator") (eq .User.Role "admin")}}<li><a href="/moderation">Moderation</a></li>{{end}}
+      {{if eq .User.Role "admin"}}<li><a href="/admin/users">Roles</a></li>{{end}}
       <li><form method="post" action="/sign-out"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="link">Sign out</button></form></li>
     {{else}}
       <li><a href="/sign-in">Sign in</a></li>

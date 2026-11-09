@@ -16,6 +16,8 @@ module.exports = defineConfig({
   use: {
     baseURL: process.env.BASE_URL || "http://127.0.0.1:8090",
     javaScriptEnabled: false,
+    // A container with a Chromium of its own, but no download access: PW_CHROMIUM=/path/to/chrome.
+    launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
     ignoreHTTPSErrors: !!process.env.E2E_IGNORE_HTTPS_ERRORS, // the release rehearsal's throwaway certificate
   },
   projects: [

@@ -68,6 +68,13 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /spots/{id}/problems/new", s.newProblemPost)
 	mux.HandleFunc("GET /reports/{id}/problems/new", s.newProblemForm)
 	mux.HandleFunc("POST /reports/{id}/problems/new", s.newProblemPost)
+	mux.HandleFunc("GET /moderation", s.queue)
+	mux.HandleFunc("POST /moderation/spots/{id}/approve", s.setStatus("approved"))
+	mux.HandleFunc("POST /moderation/spots/{id}/reject", s.setStatus("rejected"))
+	mux.HandleFunc("POST /moderation/reports/{id}/hide", s.hideReport)
+	mux.HandleFunc("POST /moderation/problems/{id}/resolve", s.resolveProblem)
+	mux.HandleFunc("GET /admin/users", s.usersForm)
+	mux.HandleFunc("POST /admin/users", s.usersPost)
 
 	var h http.Handler = s.routeErrors(mux)
 	h = s.sessions(h)

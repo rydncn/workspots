@@ -2,6 +2,7 @@
 //
 //	workspots            # serve on $ADDR
 //	workspots migrate    # apply migrations/ using $MIGRATE_DATABASE_URL, then exit
+//	workspots grant-role <email> <role>   # make the first admin, using $MIGRATE_DATABASE_URL or $DATABASE_URL
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rydncn/workspots/internal/accounts"
 	"github.com/rydncn/workspots/internal/config"
 	"github.com/rydncn/workspots/internal/mail"
 	"github.com/rydncn/workspots/internal/migrate"
@@ -57,6 +59,30 @@ func run(args []string, getenv func(string) string) error {
 			log.Info("migration applied", "name", name)
 		}
 		return err
+	}
+
+	if len(args) > 0 && args[0] == "grant-role" {
+		if len(args) != 3 {
+			return errors.New("usage: workspots grant-role <email> <role>")
+		}
+		url := getenv("MIGRATE_DATABASE_URL")
+		if url == "" {
+			url = getenv("DATABASE_URL")
+		}
+		if url == "" {
+			return errors.New("MIGRATE_DATABASE_URL or DATABASE_URL must be set")
+		}
+		pool, err := pgxpool.New(ctx, url)
+		if err != nil {
+			return fmt.Errorf("connect: %w", err)
+		}
+		defer pool.Close()
+		id, err := accounts.GrantRole(ctx, pool, args[1], args[2])
+		if err != nil {
+			return err
+		}
+		log.Info("role changed", "user_id", id, "role", args[2])
+		return nil
 	}
 
 	cfg, err := config.Load(getenv)

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,10 +25,20 @@ var (
 	ErrPasswordTooLong    = errors.New("the password must be at most 1,024 bytes")
 	ErrInvalidCredentials = errors.New("the email address or password is not right")
 	ErrSessionNotFound    = errors.New("session not found")
+	ErrPermissionDenied   = errors.New("you do not have permission to do this")
+	ErrInvalidRole        = errors.New("that is not a role")
+	ErrUserNotFound       = errors.New("no account has that address")
 )
+
+// Roles a user can have, as the database constraint lists them.
+var Roles = []string{"member", "moderator", "admin"}
 
 // SessionLifetime is how long a session lasts from sign-in (docs/design.md, retention).
 const SessionLifetime = 30 * 24 * time.Hour
+
+// expired is the one definition of a session that has run out (rule 19): a
+// live session is NOT expired. Expired rows are deleted whenever sessions change.
+const expired = `expires_at <= now()`
 
 // User is a signed-up person.
 type User struct {
@@ -123,7 +134,7 @@ func CreateSession(ctx context.Context, db *pgxpool.Pool, userID int64) (string,
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	// Retention (docs/design.md): expired sessions are deleted, not just ignored.
-	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE expires_at <= now()`); err != nil {
+	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE `+expired); err != nil {
 		return "", err
 	}
 	_, err := db.Exec(ctx, `INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, now() + $3::interval)`,
@@ -141,7 +152,7 @@ func SessionID(token string) string {
 func SessionUser(ctx context.Context, db *pgxpool.Pool, token string) (User, error) {
 	var u User
 	err := db.QueryRow(ctx, `SELECT u.id, u.email, u.role FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.id = $1 AND s.expires_at > now()`, SessionID(token)).Scan(&u.ID, &u.Email, &u.Role)
+		WHERE s.id = $1 AND NOT (s.`+expired+`)`, SessionID(token)).Scan(&u.ID, &u.Email, &u.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return User{}, ErrSessionNotFound
 	}
@@ -151,7 +162,7 @@ func SessionUser(ctx context.Context, db *pgxpool.Pool, token string) (User, err
 // EndSession deletes one session, and any expired ones while it is at it; a
 // token that is already gone is not an error.
 func EndSession(ctx context.Context, db *pgxpool.Pool, token string) error {
-	_, err := db.Exec(ctx, `DELETE FROM sessions WHERE id = $1 OR expires_at <= now()`, SessionID(token))
+	_, err := db.Exec(ctx, `DELETE FROM sessions WHERE id = $1 OR `+expired, SessionID(token))
 	return err
 }
 
@@ -190,4 +201,34 @@ func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current
 	}
 	_, err := db.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, newHash)
 	return err
+}
+
+// SetRole lets an admin give the account at email a role (AC21).
+func SetRole(ctx context.Context, db *pgxpool.Pool, actorID int64, email, role string) (int64, error) {
+	var admin bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND role = 'admin')`, actorID).Scan(&admin); err != nil {
+		return 0, err
+	}
+	if !admin {
+		return 0, ErrPermissionDenied
+	}
+	return GrantRole(ctx, db, email, role)
+}
+
+// GrantRole gives the account at email a role with no check on who asks (the
+// operator's grant-role command, which makes the first admin) and returns the
+// account's id. A change of privilege ends the account's sessions
+// (.claude/rules/api.md): the person signs in again with the new role.
+func GrantRole(ctx context.Context, db *pgxpool.Pool, email, role string) (int64, error) {
+	if !slices.Contains(Roles, role) {
+		return 0, ErrInvalidRole
+	}
+	var id int64
+	err := db.QueryRow(ctx, `WITH changed AS (UPDATE users SET role = $2 WHERE lower(email) = lower($1) RETURNING id),
+		ended AS (DELETE FROM sessions WHERE user_id IN (SELECT id FROM changed))
+		SELECT id FROM changed`, email, role).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrUserNotFound
+	}
+	return id, err
 }

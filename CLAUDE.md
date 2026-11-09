@@ -2,7 +2,7 @@
 
 Finds good places to work remotely: cafés, libraries, coworking spaces, hotel lobbies. Anyone searches; members add spots and leave reports; moderators approve and hide. Server-rendered Go, Postgres, no JavaScript.
 
-Set up against ai-playbook `f2fd445`. Its `CHANGELOG.md` lists what changed since, and what to do about each change. This is trial 2 of that playbook's core: feedback on it goes in `docs/playbook-feedback.md`, effort and defects in `docs/trial-log.md`.
+Set up against ai-playbook `f2fd445`, caught up to `6cb43d9` in slice 5 (the context-budget hook; rule 19, lifecycles, in `docs/design.md`). Its `CHANGELOG.md` lists what changed since, and what to do about each change. This is trial 2 of that playbook's core: feedback on it goes in `docs/playbook-feedback.md`, effort and defects in `docs/trial-log.md`.
 
 Docs: design and acceptance criteria in `docs/design.md`, decisions in `docs/decisions/`, where the work is in `docs/handoff.md`. A slice's plan is its pull request description.
 
@@ -71,3 +71,4 @@ These load automatically when the agent works on matching files:
 
 - `DROP DATABASE … WITH (FORCE)` needs the right to end the other role's connections: dev and CI grant `workspots_app` to `workspots_migrate` in `scripts/db-init.sql`. Production never drops databases.
 - `has_table_privilege` with a bare name from `information_schema` resolves against the wrong schema; qualify it with `format('%I.%I', …)`.
+- Commit before breaking a gate on purpose. `git checkout -- <file>` restores the last *commit*, so used on an uncommitted file it wipes the slice's work (slice 5 lost and rewrote `moderation.go`). Break from a clean tree and restore with `git checkout`, or keep a copy.

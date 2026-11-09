@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rydncn/workspots/internal/accounts"
 	"github.com/rydncn/workspots/internal/moderation"
 	"github.com/rydncn/workspots/internal/obs"
 	"github.com/rydncn/workspots/internal/spots"
@@ -37,7 +38,8 @@ var (
 		Detail: "One or more fields are missing or not valid; see errors."}
 	unavailable = Problem{Type: "/problems/unavailable", Title: "Service unavailable", Status: 503,
 		Detail: "The service cannot reach its database right now."}
-	tooMany = Problem{Type: "/problems/rate-limited", Title: "Too many attempts", Status: 429,
+	alreadyDecided = Problem{Type: "/problems/already-decided", Title: "Already decided", Status: 409}
+	tooMany        = Problem{Type: "/problems/rate-limited", Title: "Too many attempts", Status: 429,
 		Detail: "Too many attempts in a short time. Wait for the number of seconds in the Retry-After header and try again."}
 )
 
@@ -49,12 +51,20 @@ var domainProblems = []struct {
 }{
 	{spots.ErrSpotNotFound, Problem{Type: "/problems/spot-not-found", Title: "Spot not found", Status: 404, Detail: "There is no spot at this address, or it is awaiting approval."}},
 	{moderation.ErrTargetNotFound, Problem{Type: "/problems/target-not-found", Title: "Nothing to report here", Status: 404, Detail: "There is no spot or report at this address to report a problem with."}},
+	{moderation.ErrNothingToModerate, Problem{Type: "/problems/nothing-to-moderate", Title: "Nothing to moderate here", Status: 404, Detail: "There is no spot, report or problem at this address waiting for a decision."}},
+	{accounts.ErrPermissionDenied, Problem{Type: "/problems/forbidden", Title: "Not allowed", Status: 403, Detail: "Your account does not have permission to do this."}},
 	{spots.ErrInvalid, Problem{Type: "/problems/validation", Title: "Some fields need attention", Status: 422, Detail: "The database refused a value the form let through."}},
 }
 
 // problemFor turns any error into a problem: a mapped domain error into its
 // own, anything else into the generic 500 (its detail goes to the log only).
 func problemFor(err error) Problem {
+	var decided moderation.DecidedError
+	if errors.As(err, &decided) {
+		p := alreadyDecided
+		p.Detail = "This spot is already " + decided.Status + "; another moderator got there first. Reload the queue."
+		return p
+	}
 	for _, m := range domainProblems {
 		if errors.Is(err, m.err) {
 			return m.problem

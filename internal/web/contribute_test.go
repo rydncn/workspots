@@ -25,6 +25,7 @@ func signedIn(t *testing.T, a *app, prefix string) *browser {
 	t.Helper()
 	b := a.browser(t)
 	email := unique(prefix)
+	b.email = email
 	b.signUp(email, goodPassword)
 	if res, _ := b.signIn(email, goodPassword); res.StatusCode != 303 {
 		t.Fatalf("sign-in: %d", res.StatusCode)

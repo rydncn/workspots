@@ -1,25 +1,20 @@
 # Handoff
 
-**Updated:** 2026-11-09, end of session 1 (design, slices 1 to 4). The session ran far past the context budget at Ryan's request; the next one must be fresh.
+**Updated:** 2026-11-09, session 2 (slice 5).
 
 ## Where the work is
 
-- Slices 1 to 3 are on `main` (PRs #1, #4, #8; #5 landed on the slice 2 branch by mistake and #8 carried it over). Slice 4 (contribute) is PR #9 from `slice-4-contribute`, ready and green, fresh-context review fixed and recorded.
-- `docs/trial-log.md` has slices 0 to 4; `docs/playbook-feedback.md` has 26 items. Commit the log before planting breaks or branching for anything disposable; stacked PRs cost a round trip here, so wait for the base to merge.
-- `scripts/dev-db.sh` first in every session; then `go test ./...` and `cd e2e && npm ci && npm test` work with no further setup. e2e signs in as seeded members, readers and contributors (`e2e/seed.sql`); only one journey signs up; the report journeys use the seeded "Reportable Café" so they cannot move the attributes the browse journeys assert on.
+- Slices 1 to 4 are on `main` (PRs #1, #4, #8, #9). Slice 5 (moderation and roles) is PR #10 from `ccr-20627409-4xiipi`: draft, fresh-context review done and recorded in `docs/trial-log.md`. The CI test and e2e jobs run only once the PR is marked ready for review, so mark it ready and watch that run before merging.
+- `docs/trial-log.md` has slices 0 to 5; `docs/playbook-feedback.md` has 29 items.
+- `scripts/dev-db.sh` first in every session; then `go test ./...`. For e2e: `cd e2e && npm ci && PW_CHROMIUM=/opt/pw-browsers/chromium npx playwright test` in a container whose Playwright download is blocked (the config takes `PW_CHROMIUM`); plain `npm test` where it is not. e2e signs in as seeded members, readers, contributors, moderators, admins and members to promote (`e2e/seed.sql`), one of each per Playwright project so the two projects never share state; the accounts journey changes the seeded *member*'s password, so other journeys sign in as a contributor.
+- The first admin is made with `workspots grant-role <email> <role>` (README); after that `/admin/users` sets roles by email. A role change signs the account out. An admin can demote themselves, including the last admin; `grant-role` is the way back.
 
-## Next: slice 5, moderation and roles
+## Next: slice 6
 
-Criteria: AC18, AC19, AC20, AC21, and AC6's moderator exception (already in `spots.visible` via `Viewer.Moderator`; test it).
-
-What it needs: `internal/moderation`: `PendingSpots`, `Approve`, `Reject` (status → rejected, author sees "rejected" on their account page and spot page, AC19), `HideReport(reportID, reason)` (hidden flag; AC20 says the queue shows it hidden, so keep a `hidden_reason`/`hidden_at` on reports via migration 0005), `OpenProblems` (the queue: spots, reports and problem reports together), `Resolve` for a problem report, and `accounts.SetRole(adminID, userID, role)` with `ErrPermissionDenied` unless the actor is an admin (AC21). `cmd/workspots grant-role <email> <role>` to bootstrap the first admin (reads `MIGRATE_DATABASE_URL` or `DATABASE_URL`; document in the README; this is how an operator makes the first admin). `internal/web`: `GET /moderation` (403 problem for members, 401 for visitors: AC18; `requireRole` helper beside `requireUser`), `POST /moderation/spots/{id}/approve|reject`, `POST /moderation/reports/{id}/hide`, `POST /moderation/problems/{id}/resolve`, `GET/POST /admin/users` for roles (admin only; moderators get 403, AC21). Every moderation route has a test where a member and a moderator are refused where they should be; the AC30 test needs nothing new unless a table is added. e2e: seed a moderator and an admin (same password hash), journeys for approve, hide and change role with axe; keyboard once. Remember the limiter: moderators' actions need no limit.
-
-Then: fresh-context review, trial log, feedback, PR description as the plan. Door: one-way (authorisation, roles, migration).
-
-Slice 6 after that: AC11 account deletion (everything personal gone, approved spots anonymised, proved in the database), the Dockerfile and release rehearsal (Caddy with its internal CA, as the design's rehearsal section says), `/security-audit`, the final whole-codebase review, and the trial's totals and comparison in `docs/trial-log.md`.
+AC11 account deletion (everything personal gone, approved spots anonymised, proved in the database; ADR 0011), the Dockerfile and release rehearsal (Caddy with its internal CA, as the design's rehearsal section says), `/security-audit`, the final whole-codebase review briefed from `CLAUDE.md` and the design, and the trial's totals and comparison in `docs/trial-log.md`. Hidden reports keep `hidden_reason` and `hidden_at` (migration 0006); deletion cascades reports, so nothing new to anonymise there. `spots.moderated_by` (migration 0007) is `ON DELETE SET NULL`, so a deleted moderator's decisions stay with no name; the history says "a deleted account". A spot is decided once (design, Lifecycles); if an admin reversal is wanted it is a new decision, not an edit.
 
 ## Environment notes
 
 - Docker daemon doesn't run in this container: the Dockerfile and rehearsal can only be verified in CI (slice 6).
-- npm was upgraded to 11 globally; `staticcheck` and `govulncheck` are installed in `$(go env GOPATH)/bin`. gitleaks and zizmor release downloads from github.com work.
+- These notes are about one container and may not survive to the next. Session 2 had to `go install` `staticcheck` and `govulncheck` (the latter cannot reach vuln.go.dev here; CI runs it), and the pinned Playwright could not download its browser: use the pre-installed one via `PW_CHROMIUM`.
 - The harness floor is about 80k tokens of context; the budget hook will warn early. Record peak context per session in `docs/trial-log.md`.

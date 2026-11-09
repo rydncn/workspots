@@ -16,7 +16,9 @@ Then open <http://127.0.0.1:8080/>. Everyone who signs up is a member. The first
 
 ```bash
 MIGRATE_DATABASE_URL=postgres://workspots_migrate:dev-migrate@localhost:5432/workspots_dev go run ./cmd/workspots grant-role you@example.com admin
-``` `go test ./...` runs every test against the same Postgres, each in its own database.
+```
+
+`go test ./...` runs every test against the same Postgres, each in its own database.
 
 ## Configuration
 

@@ -95,7 +95,7 @@ test("only an admin changes roles (AC21)", async ({ page }, testInfo) => {
   await page.getByLabel("Email address of the account").fill(who("promoted", testInfo));
   await page.getByLabel("Role").selectOption("moderator");
   await page.getByRole("button", { name: "Set role" }).click();
-  await expect(page.getByRole("status")).toContainText("is now a moderator");
+  await expect(page.getByRole("status")).toContainText("now has the role moderator");
   await expectPageOK(page);
   await page.getByRole("button", { name: "Sign out" }).first().click();
 

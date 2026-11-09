@@ -45,6 +45,10 @@ Where the playbook core at `f2fd445` was wrong, slow, missing something or assum
 
 27. **Acceptance criteria written per behaviour miss what one actor can do to a shared result.** Thirty criteria, two automated review layers and a human review of slice 3 all passed a view that let one account outvote everyone on a spot's attributes; the human review of slice 4 caught it. The design template's prompt for unhappy paths ("empty, invalid, refused, offline, worst-case data") could add "one actor, many times" for anything aggregated or ranked.
 
+28. **A handoff's environment notes describe a container, not the project.** Session 2 started in a fresh container with none of the tools the handoff said were installed (`staticcheck`, `govulncheck`, the e2e browser for the pinned Playwright), and the network policy blocked the browser download and the vulnerability database. Twenty minutes went on discovering this. The handoff template should put tool installs in a setup script the next session runs, or label environment notes as "this container only". Related: the handoff numbered the next migration 0005 when 0005 had landed in the slice's own review fixes; "next migration" belongs in `git log`, not in prose.
+
+29. **Gate breaks on a dirty tree are dangerous.** Undoing a planted break with `git checkout -- file` restored the committed version and erased the slice's uncommitted work in that file. Rule 15 should say: commit (or stash) before planting a break, so the restore is `git checkout` of a clean tree.
+
 ## Review layers
 
 - The Claude PR review workflow (`claude-review.yml`) was not set up: it needs purchased API credit this account doesn't have. The fresh-context subagent review of each slice carried that layer.

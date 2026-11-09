@@ -71,3 +71,4 @@ These load automatically when the agent works on matching files:
 
 - `DROP DATABASE … WITH (FORCE)` needs the right to end the other role's connections: dev and CI grant `workspots_app` to `workspots_migrate` in `scripts/db-init.sql`. Production never drops databases.
 - `has_table_privilege` with a bare name from `information_schema` resolves against the wrong schema; qualify it with `format('%I.%I', …)`.
+- Commit before breaking a gate on purpose. `git checkout -- <file>` restores the last *commit*, so used on an uncommitted file it wipes the slice's work (slice 5 lost and rewrote `moderation.go`). Break from a clean tree and restore with `git checkout`, or keep a copy.

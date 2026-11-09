@@ -77,10 +77,11 @@ func run(args []string, getenv func(string) string) error {
 			return fmt.Errorf("connect: %w", err)
 		}
 		defer pool.Close()
-		if err := accounts.GrantRole(ctx, pool, args[1], args[2]); err != nil {
+		id, err := accounts.GrantRole(ctx, pool, args[1], args[2])
+		if err != nil {
 			return err
 		}
-		log.Info("role granted", "role", args[2])
+		log.Info("role changed", "user_id", id, "role", args[2])
 		return nil
 	}
 

@@ -18,12 +18,13 @@
   {{if .ReportID}}
     {{if .Hidden}}<p class="notice" role="status">Hidden{{if .HiddenReason}}: {{.HiddenReason}}{{end}}</p>
     {{else}}<p class="muted">The report says: {{if .ReportNote}}{{.ReportNote}}{{else}}(no note){{end}}</p>
+    {{$field := printf "reason-%d" .ReportID}}
     <form method="post" action="/moderation/reports/{{.ReportID}}/hide" class="stack">
       <input type="hidden" name="csrf" value="{{$.CSRF}}">
       <div class="field">
-        <label for="reason-{{.ID}}">Why hide this report?</label>
-        <input id="reason-{{.ID}}" name="reason" maxlength="500" required{{template "invalid" (dict $ "reason")}}>
-        {{template "field_error" (dict $ "reason")}}
+        <label for="{{$field}}">Why hide this report?</label>
+        <input id="{{$field}}" name="reason" maxlength="500" required{{template "invalid" (dict $ $field)}}>
+        {{template "field_error" (dict $ $field)}}
       </div>
       <button type="submit">Hide report</button>
     </form>{{end}}

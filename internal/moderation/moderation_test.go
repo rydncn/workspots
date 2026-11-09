@@ -41,7 +41,7 @@ func TestActionsNeedAModerator(t *testing.T) {
 		"SetStatus":  func(a int64) error { return moderation.SetStatus(ctx, db, a, spot, "approved") },
 		"HideReport": func(a int64) error { return moderation.HideReport(ctx, db, a, 1, "why") },
 		"Resolve":    func(a int64) error { return moderation.Resolve(ctx, db, a, 1) },
-		"SetRole":    func(a int64) error { return accounts.SetRole(ctx, db, a, "m@example.test", "admin") },
+		"SetRole":    func(a int64) error { _, err := accounts.SetRole(ctx, db, a, "m@example.test", "admin"); return err },
 	} {
 		if err := act(member); !errors.Is(err, accounts.ErrPermissionDenied) {
 			t.Errorf("%s by a member: %v", name, err)

@@ -200,29 +200,31 @@ func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current
 }
 
 // SetRole lets an admin give the account at email a role (AC21).
-func SetRole(ctx context.Context, db *pgxpool.Pool, actorID int64, email, role string) error {
+func SetRole(ctx context.Context, db *pgxpool.Pool, actorID int64, email, role string) (int64, error) {
 	var admin bool
 	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND role = 'admin')`, actorID).Scan(&admin); err != nil {
-		return err
+		return 0, err
 	}
 	if !admin {
-		return ErrPermissionDenied
+		return 0, ErrPermissionDenied
 	}
 	return GrantRole(ctx, db, email, role)
 }
 
-// GrantRole gives the account at email a role with no check on who asks: the
-// operator's grant-role command, which makes the first admin.
-func GrantRole(ctx context.Context, db *pgxpool.Pool, email, role string) error {
+// GrantRole gives the account at email a role with no check on who asks (the
+// operator's grant-role command, which makes the first admin) and returns the
+// account's id. A change of privilege ends the account's sessions
+// (.claude/rules/api.md): the person signs in again with the new role.
+func GrantRole(ctx context.Context, db *pgxpool.Pool, email, role string) (int64, error) {
 	if !slices.Contains(Roles, role) {
-		return ErrInvalidRole
+		return 0, ErrInvalidRole
 	}
-	tag, err := db.Exec(ctx, `UPDATE users SET role = $2 WHERE lower(email) = lower($1)`, email, role)
-	if err != nil {
-		return err
+	var id int64
+	err := db.QueryRow(ctx, `WITH changed AS (UPDATE users SET role = $2 WHERE lower(email) = lower($1) RETURNING id),
+		ended AS (DELETE FROM sessions WHERE user_id IN (SELECT id FROM changed))
+		SELECT id FROM changed`, email, role).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrUserNotFound
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrUserNotFound
-	}
-	return nil
+	return id, err
 }

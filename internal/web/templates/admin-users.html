@@ -1,7 +1,7 @@
 {{define "title"}}Roles: Workspots{{end}}
 {{define "main"}}
 <h1>Roles</h1>
-{{if .Changed}}<p class="notice" role="status">{{.Email}} is now a {{.Changed}}.</p>{{end}}
+{{if .Changed}}<p class="notice" role="status">{{.Email}} now has the role {{.Changed}}, and has been signed out to pick it up.</p>{{end}}
 <p>Members add spots and reports; moderators also approve, reject and hide; admins also set roles.</p>
 {{template "errors" .}}
 <form method="post" action="/admin/users" class="stack">
@@ -13,7 +13,7 @@
   </div>
   <div class="field">
     <label for="role">Role</label>
-    <select id="role" name="role"{{template "invalid" (dict . "role")}}>{{range .Roles}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+    <select id="role" name="role"{{template "invalid" (dict . "role")}}>{{range .Roles}}<option value="{{.}}"{{if eq . $.Role}} selected{{end}}>{{.}}</option>{{end}}</select>
     {{template "field_error" (dict . "role")}}
   </div>
   <button type="submit">Set role</button>

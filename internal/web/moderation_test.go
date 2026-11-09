@@ -105,6 +105,7 @@ func TestAC19ApproveOrReject(t *testing.T) {
 	if res, _ := mod.post("/moderation", "/moderation"+rejectPath+"/reject", url.Values{}); res.StatusCode != 303 {
 		t.Fatalf("reject: %d", res.StatusCode)
 	}
+	has(t, a.logs.String(), `"msg":"spot approved"`, `"msg":"spot rejected"`)
 	_, body := get(t, a, "/search?area=leeds")
 	has(t, body, "Approve Me Café")
 	lacks(t, body, "Reject Me Café")
@@ -134,28 +135,42 @@ func TestAC20HideAReport(t *testing.T) {
 	a.addReportBy(t, a.seedMember(t), spot, attrs{Wifi: 4, Noise: 2}, "SPAMMY NOTE", false, 1)
 	var report int64
 	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM reports WHERE note = 'SPAMMY NOTE'`).Scan(&report)
+	a.addReportBy(t, a.seedMember(t), spot, attrs{Wifi: 4, Noise: 2}, "Second flagged note", false, 0)
+	var other int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM reports WHERE note = 'Second flagged note'`).Scan(&other)
 	flagger := signedIn(t, a, "flagger")
-	flagPath := fmt.Sprintf("/reports/%d/problems/new", report)
-	if res, _ := flagger.post(flagPath, flagPath, url.Values{"reason": {"Advertising."}}); res.StatusCode != 200 {
-		t.Fatalf("flag: %d", res.StatusCode)
+	for _, id := range []int64{report, other} {
+		flagPath := fmt.Sprintf("/reports/%d/problems/new", id)
+		if res, _ := flagger.post(flagPath, flagPath, url.Values{"reason": {"Advertising."}}); res.StatusCode != 200 {
+			t.Fatalf("flag: %d", res.StatusCode)
+		}
 	}
 	_, page := get(t, a, fmt.Sprintf("/spots/%d", spot))
-	has(t, page, "SPAMMY NOTE", "<dd>Good</dd>") // median of usable (2) and excellent (4) is 3, good
+	has(t, page, "SPAMMY NOTE", "<dd>Excellent</dd>") // median of 2, 4 and 4
 
 	mod := staff(t, a, "mod", "moderator")
 	_, queue := mod.get("/moderation")
 	has(t, queue, "SPAMMY NOTE", "Advertising.", "Hide Café")
 	lacks(t, queue, "Hidden")
 	hidePath := fmt.Sprintf("/moderation/reports/%d/hide", report)
-	if res, _ := mod.post("/moderation", hidePath, url.Values{"reason": {""}}); res.StatusCode != 422 {
+	res, body := mod.post("/moderation", hidePath, url.Values{"reason": {""}})
+	if res.StatusCode != 422 {
 		t.Errorf("hiding without a reason: %d", res.StatusCode)
+	}
+	// Two hide forms are on the page: only the posted one is marked invalid, with ids that are unique and linked.
+	errID := fmt.Sprintf(`id="reason-%d-error"`, report)
+	if strings.Count(body, "aria-invalid") != 1 || strings.Count(body, errID) != 1 || !strings.Contains(body, fmt.Sprintf(`href="#reason-%d"`, report)) {
+		t.Errorf("422 page: %d aria-invalid, %d %s", strings.Count(body, "aria-invalid"), strings.Count(body, errID), errID)
+	}
+	if _, page := get(t, a, fmt.Sprintf("/spots/%d", spot)); !strings.Contains(page, "SPAMMY NOTE") {
+		t.Error("a refused hide hid the report")
 	}
 	if res, _ := mod.post("/moderation", hidePath, url.Values{"reason": {"Advertising, not a report."}}); res.StatusCode != 303 {
 		t.Fatalf("hide: %d", res.StatusCode)
 	}
 	_, page = get(t, a, fmt.Sprintf("/spots/%d", spot))
 	lacks(t, page, "SPAMMY NOTE")
-	has(t, page, "Honest note", "<dd>Usable</dd>", "From 1 report")
+	has(t, page, "Honest note", "<dd>Good</dd>", "From 2 reports") // median of 2 and 4 is 3, good
 	_, queue = mod.get("/moderation")
 	has(t, queue, "Hidden", "Advertising, not a report.")
 	var reason string
@@ -164,9 +179,11 @@ func TestAC20HideAReport(t *testing.T) {
 	if reason != "Advertising, not a report." || hiddenAt == nil {
 		t.Errorf("row: reason %q, hidden_at %v", reason, hiddenAt)
 	}
-	if res, _ := mod.post("/moderation", hidePath, url.Values{"reason": {"again"}}); res.StatusCode != 404 {
-		t.Errorf("hiding a hidden report: %d", res.StatusCode)
+	res, body = mod.postRaw(hidePath, url.Values{"reason": {"again"}, "csrf": {csrfField.FindStringSubmatch(queue)[1]}}, "Origin", a.URL, "Accept", "application/json")
+	if p := readProblem(t, res, body); res.StatusCode != 404 || p.Type != "/problems/nothing-to-moderate" {
+		t.Errorf("hiding a hidden report: %d %+v", res.StatusCode, p)
 	}
+	has(t, a.logs.String(), `"msg":"report hidden"`)
 	// Resolving the problem takes it off the queue.
 	var problem int64
 	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM problem_reports WHERE report_id = $1`, report).Scan(&problem)
@@ -213,9 +230,17 @@ func TestAC21OnlyAnAdminChangesRoles(t *testing.T) {
 	if got := a.role(t, member.email); got != "moderator" {
 		t.Errorf("role after promotion: %q", got)
 	}
+	if res, _ := member.get("/moderation"); res.StatusCode != 401 {
+		t.Errorf("a change of privilege keeps the old session: %d", res.StatusCode)
+	}
+	if res, _ := member.signIn(member.email, goodPassword); res.StatusCode != 303 {
+		t.Fatalf("sign in after promotion: %d", res.StatusCode)
+	}
 	if res, _ := member.get("/moderation"); res.StatusCode != 200 {
 		t.Errorf("new moderator opens /moderation: %d", res.StatusCode)
 	}
+	has(t, a.logs.String(), `"msg":"role changed"`)
+	lacks(t, a.logs.String(), member.email)
 	if res, _ := admin.post("/admin/users", "/admin/users", url.Values{"email": {member.email}, "role": {"owner"}}); res.StatusCode != 422 {
 		t.Errorf("unknown role: %d", res.StatusCode)
 	}

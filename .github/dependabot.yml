@@ -41,3 +41,13 @@ updates:
     groups:
       e2e:
         update-types: [minor, patch]
+
+  # The Dockerfile's base images, pinned by digest (ADR 0008). The Caddy image
+  # the release rehearsal uses is pinned in ci.yml, which Dependabot does not
+  # read: move it by hand with the Go base.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

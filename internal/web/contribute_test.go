@@ -39,33 +39,31 @@ func TestAC13ContributingNeedsAnAccount(t *testing.T) {
 	a := newApp(t)
 	id := a.addSpotWith(t, "Open Café", "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
 	visitor := a.browser(t)
+	_, page := visitor.get("/sign-in")
+	token := csrfField.FindStringSubmatch(page)[1]
 	for _, path := range []string{"/spots/new", fmt.Sprintf("/spots/%d/reports/new", id), fmt.Sprintf("/spots/%d/problems/new", id)} {
 		res, _ := visitor.get(path)
 		if res.StatusCode != 303 || res.Header.Get("Location") != "/sign-in?next="+url.QueryEscape(path) {
 			t.Errorf("GET %s: %d -> %q", path, res.StatusCode, res.Header.Get("Location"))
 		}
-		res, body := visitor.postRaw(path, url.Values{}, "Origin", a.URL, "Accept", "application/json")
-		if p := readProblem(t, res, body); res.StatusCode != 401 && res.StatusCode != 403 || (res.StatusCode == 401 && p.Type != "/problems/sign-in-required") {
+		// With a valid pre-session token, so it is the sign-in check that answers, not CSRF.
+		form := spotForm("Sneaky")
+		form.Set("csrf", token)
+		form.Set("reason", "sneaky")
+		res, body := visitor.postRaw(path, form, "Origin", a.URL, "Accept", "application/json")
+		if p := readProblem(t, res, body); res.StatusCode != 401 || p.Type != "/problems/sign-in-required" {
 			t.Errorf("POST %s: %d %+v", path, res.StatusCode, p)
 		}
 	}
-	// A signed-out POST with a valid pre-session token is the 401, not a CSRF 403.
-	_, page := visitor.get("/sign-in")
-	token := csrfField.FindStringSubmatch(page)[1]
-	form := spotForm("Sneaky")
-	form.Set("csrf", token)
-	res, body := visitor.postRaw("/spots/new", form, "Origin", a.URL, "Accept", "application/json")
-	if p := readProblem(t, res, body); res.StatusCode != 401 || p.Type != "/problems/sign-in-required" {
-		t.Errorf("signed-out POST: %d %+v", res.StatusCode, p)
-	}
 	var n int
 	_ = a.admin.QueryRow(context.Background(), `SELECT count(*) FROM spots WHERE name = 'Sneaky'`).Scan(&n)
-	if n != 0 {
-		t.Error("a signed-out POST created a spot")
+	var m int
+	_ = a.admin.QueryRow(context.Background(), `SELECT count(*) FROM reports WHERE spot_id = $1`, id).Scan(&m)
+	var k int
+	_ = a.admin.QueryRow(context.Background(), `SELECT count(*) FROM problem_reports`).Scan(&k)
+	if n+m+k != 0 {
+		t.Errorf("a signed-out POST wrote rows: spots %d, reports %d, problems %d", n, m, k)
 	}
-	// An off-site return path is replaced after sign-in.
-	res, _ = visitor.get("/sign-in?next=https://evil.example/")
-	_ = res
 }
 
 // AC14 and AC6: a new spot is pending, shown to its author as awaiting
@@ -131,9 +129,12 @@ func TestAC15ValidationKeepsWhatWasTyped(t *testing.T) {
 	form = spotForm("Odd Kind")
 	form.Set("kind", "casino")
 	form.Set("wifi", "9")
-	if res, _ := member.post("/spots/new", "/spots/new", form); res.StatusCode != 422 {
+	res, body = member.post("/spots/new", "/spots/new", form)
+	if res.StatusCode != 422 {
 		t.Errorf("unknown kind: %d", res.StatusCode)
 	}
+	// The summary's link to a rating group must land on it, and the group must name its error.
+	has(t, body, `href="#wifi"`, `<fieldset id="wifi" aria-describedby="wifi-error"`, `id="wifi-error"`, `<fieldset id="noise"`)
 }
 
 // AC16: a report shows at once with today's date and moves the attributes.
@@ -156,11 +157,39 @@ func TestAC16ReportShowsAtOnce(t *testing.T) {
 	if res.StatusCode != 422 || !strings.Contains(body, "500") {
 		t.Errorf("long note: %d", res.StatusCode)
 	}
-	// A report on a pending or unknown spot is a 404 problem.
-	pending := a.addSpotWith(t, "Pending Place", "Leeds", "pending", attrs{Wifi: 1, Noise: 3})
-	p := fmt.Sprintf("/spots/%d/reports/new", pending)
-	if res, _ := member.post("/spots/new", p, reportForm("x")); res.StatusCode != 404 {
+	// A report on a pending or unknown spot is a 404 problem, for its author too.
+	author := signedIn(t, a, "pendingauthor")
+	res, _ = author.post("/spots/new", "/spots/new", spotForm("Author's Pending"))
+	p := res.Header.Get("Location") + "/reports/new"
+	if res, _ := author.get(p); res.StatusCode != 404 {
+		t.Errorf("report form for one's own pending spot: %d", res.StatusCode)
+	}
+	if res, _ := author.post("/spots/new", p, reportForm("x")); res.StatusCode != 404 {
 		t.Errorf("report on a pending spot: %d", res.StatusCode)
+	}
+}
+
+// Contributions are rate limited per member, so one account cannot flood the
+// queue or set a spot's attributes alone.
+func TestContributionsAreLimitedPerMember(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	member := signedIn(t, a, "flood")
+	var last int
+	for i := 0; i < 11; i++ {
+		res, _ := member.post("/spots/new", "/spots/new", spotForm(fmt.Sprintf("Flood %d", i)))
+		last = res.StatusCode
+	}
+	if last != 429 {
+		t.Errorf("eleventh spot in a quarter hour: %d", last)
+	}
+	id := a.addSpotWith(t, "Flooded Café", "Leeds", "approved", attrs{Wifi: 3, Noise: 2})
+	path := fmt.Sprintf("/spots/%d/reports/new", id)
+	for i := 0; i < 20; i++ {
+		member.post(path, path, reportForm(""))
+	}
+	if res, _ := member.post(path, path, reportForm("")); res.StatusCode != 429 {
+		t.Errorf("twenty-first report in a quarter hour: %d", res.StatusCode)
 	}
 }
 
@@ -195,6 +224,29 @@ func TestAC22ReportAProblem(t *testing.T) {
 	}
 	if res, _ := member.post("/spots/new", "/reports/999999/problems/new", url.Values{"reason": {"x"}}); res.StatusCode != 404 {
 		t.Errorf("unknown report: %d", res.StatusCode)
+	}
+	// Nothing invisible can be flagged: a hidden report, a pending spot (even by its author).
+	a.addReport(t, id, attrs{Wifi: 3, Noise: 2}, "Hidden note", true, 0)
+	var hidden int64
+	_ = a.admin.QueryRow(context.Background(), `SELECT id FROM reports WHERE hidden`).Scan(&hidden)
+	hp := fmt.Sprintf("/reports/%d/problems/new", hidden)
+	if res, _ := member.get(hp); res.StatusCode != 404 {
+		t.Errorf("problem form for a hidden report: %d", res.StatusCode)
+	}
+	if res, _ := member.post("/spots/new", hp, url.Values{"reason": {"x"}}); res.StatusCode != 404 {
+		t.Errorf("problem on a hidden report: %d", res.StatusCode)
+	}
+	res, _ = member.post("/spots/new", "/spots/new", spotForm("My Pending"))
+	pp := res.Header.Get("Location") + "/problems/new"
+	if res, _ := member.get(pp); res.StatusCode != 404 {
+		t.Errorf("problem form for one's own pending spot: %d", res.StatusCode)
+	}
+	if res, _ := member.post("/spots/new", pp, url.Values{"reason": {"x"}}); res.StatusCode != 404 {
+		t.Errorf("problem on a pending spot: %d", res.StatusCode)
+	}
+	_ = a.admin.QueryRow(context.Background(), `SELECT count(*) FROM problem_reports`).Scan(&open)
+	if open != 2 {
+		t.Errorf("%d problem reports after the refused ones, want 2", open)
 	}
 }
 

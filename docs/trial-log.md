@@ -118,7 +118,16 @@ How context is measured: the playbook's context-budget hook reads the transcript
   - tests (test-first): 0 in the implementation; all five acceptance tests passed on the first run after the handlers existed (each had failed on the missing routes). The visibility rule was already in one place (`spots.visible`, Ryan's slice 3 point), so adding the author took one line and no query diverged.
   - gate breaks: author dropped from `visible` → AC14 "author's view: 404"; sign-in requirement removed from the add-spot form → AC13 "GET /spots/new: 200". Raising the handler's note limit did **not** fail AC16: the database's `length(note) <= 500` constraint refused the row and the handler mapped it to the same 422, so the handler check and the constraint back each other up and the test cannot tell which one fired. Recorded, not changed.
   - end-to-end: 3. The browser's own `required` attribute stopped invalid forms before the server saw them, so the server's validation state could not be reached (the test now removes the attribute first, as the accounts test already did for `minlength`); Tab reaches a radio group at its checked member, not its first; and the report journeys added reports to a seeded spot the browse journeys assert attributes on, which turned those journeys red under parallel runs: the report journeys now have their own seeded spot.
-  - hooks: 0. CI: (pending). Fresh-context review: (pending).
+  - hooks: 0. CI, draft run: 0.
+  - fresh-context review (subagent, about 141k tokens): 7 findings, none must-fix, all fixed, with a test seen failing first where one applies.
+    1. The problem form wrapped any database error from the spot lookup in the 404 sentinel, so an outage on that path would have shown as "nothing to report" and gone unlogged; only a real not-found is mapped now.
+    2. AC13's POST assertion accepted 401 or 403 and posted without a token, so two of the three paths were only checked by CSRF; now every path is posted with a valid pre-session token and must answer 401, and the dead off-site-next lines are gone (that case lives in the session tests).
+    3. The error summary's links to the rating groups went nowhere: the fieldsets now carry `id` and, when invalid, `aria-describedby`.
+    4. AC22 had no negative cases; a hidden report and a pending spot (by its author) now get 404 on both the form and the post, with no row.
+    5. AC26 never posted a note or a reason; it does now, including a refused over-long note, and none reach the log.
+    6. Contributions were unlimited; now 10 spots, 20 reports and 20 problem reports per member per quarter hour through the existing limiter, tested.
+    7. An index on `spots.created_by`; the problem form for a report checks the report is visible on GET as well as POST; the report form for one's own pending spot is 404 like the post.
+  - gate breaks for the review's tests: sign-in check dropped from the report POST → AC13 "POST /spots/N/reports/new: 403" (CSRF caught it first, as the reviewer predicted the old test would not); hidden-report checks dropped → AC22 "problem form for a hidden report: 200".
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

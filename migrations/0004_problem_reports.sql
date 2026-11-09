@@ -12,3 +12,6 @@ CREATE TABLE problem_reports (
   CHECK ((spot_id IS NULL) <> (report_id IS NULL))
 );
 CREATE INDEX problem_reports_open_idx ON problem_reports (status, created_at);
+
+-- A member's own spots (the account page) and the author cascade on deletion.
+CREATE INDEX spots_created_by_idx ON spots (created_by);

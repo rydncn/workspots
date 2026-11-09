@@ -1,12 +1,12 @@
 {{define "attribute_fields"}}
-<fieldset>
+<fieldset id="wifi"{{template "invalid" (dict . "wifi")}}>
   <legend>Wi-Fi</legend>
   <div class="radios">
   {{range $i, $l := .WifiLabels}}<label><input type="radio" name="wifi" value="{{$i}}"{{if eq $i (int $.A.Wifi)}} checked{{end}} required> {{$l}}</label>{{end}}
   </div>
   {{template "field_error" (dict . "wifi")}}
 </fieldset>
-<fieldset>
+<fieldset id="noise"{{template "invalid" (dict . "noise")}}>
   <legend>Noise</legend>
   <div class="radios">
   {{range $i, $l := .NoiseLabels}}{{if gt $i 0}}<label><input type="radio" name="noise" value="{{$i}}"{{if eq $i (int $.A.Noise)}} checked{{end}} required> {{$l}}</label>{{end}}{{end}}

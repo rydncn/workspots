@@ -212,3 +212,12 @@ func constraint(err error) error {
 	}
 	return err
 }
+
+// ReportVisible reports whether a report exists, is not hidden, and is on an
+// approved spot: the public can see it, so the public can flag it.
+func ReportVisible(ctx context.Context, db *pgxpool.Pool, reportID int64) (bool, error) {
+	var ok bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM reports r JOIN spots s ON s.id = r.spot_id
+		WHERE r.id = $1 AND NOT r.hidden AND s.status = 'approved')`, reportID).Scan(&ok)
+	return ok, err
+}

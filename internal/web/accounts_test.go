@@ -451,10 +451,16 @@ func TestAC26NothingPersonalInTheLog(t *testing.T) {
 	token := b.cookie("__Host-session").Value
 	b.get(fmt.Sprintf("/spots/%d", id))
 	b.get("/search?area=" + url.QueryEscape(email)) // personal data in a query string
+	const myNote, reason = "MY-OWN-NOTE about the sockets", "MY-REASON this is spam"
+	rp := fmt.Sprintf("/spots/%d/reports/new", id)
+	b.post(rp, rp, reportForm(myNote))
+	pp := fmt.Sprintf("/spots/%d/problems/new", id)
+	b.post(pp, pp, url.Values{"reason": {reason}})
+	b.post(rp, rp, reportForm(strings.Repeat("x", 501))) // a refused write must not log its content either
 	waitForMail(t, a, 1)
 
 	logs := a.logs.String()
-	for name, secret := range map[string]string{"email": email, "local part": strings.Split(email, "@")[0], "password": goodPassword, "session token": token, "note": note} {
+	for name, secret := range map[string]string{"email": email, "local part": strings.Split(email, "@")[0], "password": goodPassword, "session token": token, "note": note, "my note": myNote, "reason": reason, "refused note": strings.Repeat("x", 501)} {
 		if strings.Contains(logs, secret) {
 			t.Errorf("log contains the %s", name)
 		}

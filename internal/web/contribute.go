@@ -17,6 +17,21 @@ const (
 	maxName, maxArea, maxAddress, maxHours, maxNote, maxReason = 120, 80, 200, 500, 500, 500
 )
 
+// Contributions per member in a quarter hour, so one account cannot flood the
+// queue or set a spot's attributes alone.
+const (
+	spotsPerMember, reportsPerMember, problemsPerMember = 10, 20, 20
+)
+
+// limitMember answers 429 and returns false when the member has used up kind.
+func (s *server) limitMember(w http.ResponseWriter, r *http.Request, kind string, userID int64, limit int) bool {
+	if wait := s.limits.take(kind+":user:"+strconv.FormatInt(userID, 10), limit); wait > 0 {
+		s.rateLimited(w, r, wait)
+		return false
+	}
+	return true
+}
+
 func field(r *http.Request, name string) string { return strings.TrimSpace(r.PostForm.Get(name)) }
 
 func tooLong(s string, n int) bool { return utf8.RuneCountInString(s) > n }
@@ -89,6 +104,9 @@ func (s *server) newSpotPost(w http.ResponseWriter, r *http.Request) {
 		s.invalid(w, r, "spot-new.html", s.spotFormData(n), errs)
 		return
 	}
+	if !s.limitMember(w, r, "spots", u.ID, spotsPerMember) {
+		return
+	}
 	id, err := spots.Add(r.Context(), s.db, u.ID, n)
 	if err != nil {
 		s.fail(w, r, err)
@@ -106,14 +124,15 @@ func contains(list []string, v string) bool {
 	return false
 }
 
-// visibleSpotForForm loads the spot a form is about, as the member sees it.
-func (s *server) visibleSpotForForm(w http.ResponseWriter, r *http.Request) (spots.Spot, bool) {
+// publicSpotForForm loads the spot a report is about. Only approved spots can
+// be reported on, so the anonymous view is the right one even for the author.
+func (s *server) publicSpotForForm(w http.ResponseWriter, r *http.Request) (spots.Spot, bool) {
 	id, ok := pathID(r, "id")
 	if !ok {
 		s.fail(w, r, spots.ErrSpotNotFound)
 		return spots.Spot{}, false
 	}
-	spot, err := spots.Get(r.Context(), s.db, viewer(r), id)
+	spot, err := spots.Get(r.Context(), s.db, spots.Anonymous, id)
 	if err != nil {
 		s.fail(w, r, err)
 		return spots.Spot{}, false
@@ -125,7 +144,7 @@ func (s *server) newReportForm(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireUser(w, r); !ok {
 		return
 	}
-	spot, ok := s.visibleSpotForForm(w, r)
+	spot, ok := s.publicSpotForForm(w, r)
 	if !ok {
 		return
 	}
@@ -137,7 +156,7 @@ func (s *server) newReportPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	spot, ok := s.visibleSpotForForm(w, r)
+	spot, ok := s.publicSpotForForm(w, r)
 	if !ok {
 		return
 	}
@@ -148,6 +167,9 @@ func (s *server) newReportPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(errs) > 0 {
 		s.invalid(w, r, "report-new.html", map[string]any{"Spot": spot, "Report": a, "Note": note, "WifiLabels": spots.WifiLabels, "NoiseLabels": spots.NoiseLabels}, errs)
+		return
+	}
+	if !s.limitMember(w, r, "reports", u.ID, reportsPerMember) {
 		return
 	}
 	if err := spots.AddReport(r.Context(), s.db, u.ID, spot.ID, a, note); err != nil {
@@ -189,6 +211,9 @@ func (s *server) newProblemPost(w http.ResponseWriter, r *http.Request) {
 		s.invalid(w, r, "problem-new.html", map[string]any{"About": about, "Reason": reason, "Action": r.URL.Path}, errs)
 		return
 	}
+	if !s.limitMember(w, r, "problems", u.ID, problemsPerMember) {
+		return
+	}
 	if err := file(u.ID, reason); err != nil {
 		s.fail(w, r, err)
 		return
@@ -206,13 +231,24 @@ func (s *server) problemTarget(w http.ResponseWriter, r *http.Request) (about st
 	}
 	if strings.HasPrefix(r.URL.Path, "/spots/") {
 		spot, err := spots.Get(r.Context(), s.db, spots.Anonymous, id) // only public spots can be flagged
+		if errors.Is(err, spots.ErrSpotNotFound) {
+			err = moderation.ErrTargetNotFound
+		}
 		if err != nil {
-			s.fail(w, r, errors.Join(moderation.ErrTargetNotFound, err))
+			s.fail(w, r, err)
 			return "", nil, false
 		}
 		return "the spot " + spot.Name, func(uid int64, reason string) error {
 			return moderation.ReportSpotProblem(r.Context(), s.db, uid, id, reason)
 		}, true
+	}
+	visible, err := spots.ReportVisible(r.Context(), s.db, id)
+	if err == nil && !visible {
+		err = moderation.ErrTargetNotFound
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return "", nil, false
 	}
 	return "a report", func(uid int64, reason string) error {
 		return moderation.ReportReportProblem(r.Context(), s.db, uid, id, reason)

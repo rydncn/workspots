@@ -127,7 +127,7 @@ How context is measured: the playbook's context-budget hook reads the transcript
     5. AC26 never posted a note or a reason; it does now, including a refused over-long note, and none reach the log.
     6. Contributions were unlimited; now 10 spots, 20 reports and 20 problem reports per member per quarter hour through the existing limiter, tested.
     7. An index on `spots.created_by`; the problem form for a report checks the report is visible on GET as well as POST; the report form for one's own pending spot is 404 like the post.
-  - gate breaks for the review's tests: sign-in check dropped from the report POST → AC13 "POST /spots/N/reports/new: 403" (CSRF caught it first, as the reviewer predicted the old test would not); hidden-report checks dropped → AC22 "problem form for a hidden report: 200".
+  - gate breaks for the review's tests: sign-in check dropped from the report POST → the strengthened AC13 fails (the handler then wrote a 401 problem and carried on to a 500, so the body was two problems; the old assertion would have passed on the 403 CSRF gave a token-less post); hidden-report checks dropped → AC22 "problem form for a hidden report: 200" and "problem on a hidden report: 200".
 
 <!-- Template for each slice:
 ### Slice N: <name> (PR #)

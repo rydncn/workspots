@@ -232,7 +232,7 @@ jobs:
           curl -fsk https://localhost:8443/healthz | grep -qx ok || { echo "the image does not answer /healthz"; exit 1; }
           # Production mode is in force: HSTS is sent only there (AC24).
           curl -sk -D - -o /dev/null https://localhost:8443/ | grep -qi '^strict-transport-security:' || { echo "no HSTS: not production mode"; exit 1; }
-          : psql "$migrate_url" -v ON_ERROR_STOP=1 -q -f e2e/seed.sql # PLANTED BREAK
+          psql "$migrate_url" -v ON_ERROR_STOP=1 -q -f e2e/seed.sql
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

@@ -1,0 +1,7 @@
+# Only what the build needs reaches the image build.
+*
+!go.mod
+!go.sum
+!cmd
+!internal
+!migrations

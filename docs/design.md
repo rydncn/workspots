@@ -34,7 +34,7 @@ One Go binary, `cmd/workspots`, serving server-rendered HTML over `net/http`, ta
 - `migrate`: applies `migrations/*.sql` in order, recording each in `schema_migrations`.
 - `config`: reads the environment; in production mode refuses to start with a missing or development value.
 
-Data: `users` (id, email, password_hash, role, created_at), `sessions` (hashed token, user, expires), `spots` (name, kind, area, address, opening hours, status pending/approved/rejected, created_by nullable), `reports` (spot, author, ratings per attribute, note, hidden flag with the moderator's reason and time, created_at), `problem_reports` (target spot or report, reporter, text, status). Spot attributes shown on a spot are the medians (majorities for yes/no) of its visible reports, one vote per member per spot (a member's latest visible report; earlier ones stay on the page as history), plus the attributes the adder declared until the first report arrives. Whether the public can see a spot or a report is defined once, in the `public_spots` and `public_reports` views.
+Data: `users` (id, email, password_hash, role, created_at), `sessions` (hashed token, user, expires), `spots` (name, kind, area, address, opening hours, status pending/approved/rejected, created_by nullable), `reports` (spot, author, ratings per attribute, note, hidden flag with the moderator's reason and time, created_at), `problem_reports` (target spot or report, reporter, text, status). Spot attributes shown on a spot are the medians (majorities for yes/no) of its visible reports, one vote per member per spot (a member's latest visible report; earlier ones stay on the page as history), plus the attributes the adder declared until the first report arrives. Whether the public can see a spot or a report is defined once, in the `public_spots` and `public_reports` views; what a signed-in viewer sees beyond that (their own spots, everything for a moderator) is defined once in `spots.visible`, which reads the view.
 
 Errors: every error response is an RFC 9457 problem. A request whose `Accept` prefers `text/html` gets the same problem rendered as an HTML page with the same fields; anything else gets `application/problem+json`. Both carry the correlation ID.
 
@@ -65,14 +65,14 @@ What is real in tests: the real server, the real Postgres with every migration a
 
 ## Lifecycles
 
-Each thing with stages has one status field, one function that moves it, and one definition of each derived condition (playbook rule 19). `TestLifecycleTransitions` walks the moderation tables; a state or action without a row fails it.
+Each thing with stages has one status field, one function that moves it, and one definition of each derived condition (playbook rule 19). `TestLifecycleTransitions` walks the moderation tables, reading each lifecycle's states from the database's CHECK constraints; a state or action without a row fails it. `scripts/check-lifecycle-reads.sh` (in CI's checks job) fails on any read of a lifecycle field in Go or a template that `scripts/lifecycle-reads.txt` does not list, and on a listed read that no longer exists.
 
 | Lifecycle | Field | States | Moves | Derived condition, defined once |
 |---|---|---|---|---|
-| Spot | `spots.status`, with `moderated_by` and `moderated_at` set by the same update | pending, approved, rejected | `moderation.SetStatus`: pending → approved, pending → rejected. Nothing else: a decision is made once, so two moderators cannot overwrite each other and the record of who decided stays true. A second decision is refused with a 409 naming the current state. A wrong decision is undone by the author adding the spot again (slice 6 may add an admin reversal, recorded as a new decision). | Public: the `public_spots` view. Visible to a viewer (public, or own, or moderator): `spots.visible`. |
-| Report | `reports.hidden` (with `hidden_reason`, `hidden_at`) | visible, hidden | `moderation.HideReport`: visible → hidden; hidden again is refused. No unhide: a wrongly hidden report is posted again. | Public: the `public_reports` view; counted in `spot_attributes`. |
+| Spot | `spots.status`, with `moderated_by` and `moderated_at` set by the same update | pending, approved, rejected | `moderation.SetStatus`: pending → approved, pending → rejected. Nothing else: a decision is made once, so two moderators cannot overwrite each other and the record of who decided stays true. A second decision is refused with a 409 naming the current state. A wrong decision is undone by the author adding the spot again (slice 6 may add an admin reversal, recorded as a new decision). | Public: the `public_spots` view. Visible to a viewer (public, or own, or moderator): `spots.visible`, which reads the view. On the queue: `spots.Pending`. Withdrawn with its author's account: `accounts.Delete` deletes the author's spots that are not approved, reading the row's own status so a spot approved during the deletion is kept (a subquery on the view would read a stale snapshot). |
+| Report | `reports.hidden` (with `hidden_reason`, `hidden_at`) | visible, hidden | `moderation.HideReport`: visible → hidden; hidden again is refused. No unhide: a wrongly hidden report is posted again. | Public: the `public_reports` view, which `VisibleReports` reads; counted in `spot_attributes`. |
 | Problem report | `problem_reports.status` | open, resolved | `moderation.Resolve`: open → resolved; resolved again is refused | On the queue: `moderation.OpenProblems` (`status = 'open'`). |
-| Session | `sessions.expires_at` | live, expired | By time only: `accounts.expired` is the one definition; expired rows are deleted whenever sessions change (`CreateSession`, `EndSession`), never read as live | Live: `NOT expired`, in `accounts.SessionUser`. |
+| Session | `sessions.expires_at` | live, expired | By time only: `accounts.expired` is the one definition; expired rows are deleted at the next sign-in or sign-out (`CreateSession`, `EndSession`), never read as live | Live: `NOT expired`, in `accounts.SessionUser`. |
 
 ## Acceptance criteria
 
@@ -104,7 +104,7 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC11. Delete account.** Given an account with sessions, reports, a problem report, a pending spot and an approved spot, when its owner confirms deletion with their password, then the user row, its sessions, reports, problem reports and pending spot are gone from the database, the approved spot remains with no author, and the visitor is signed out.
 
-**AC12. Sign-in, sign-up and password change are rate limited.** Given five failed sign-in attempts for one address, or ten from one IP, within fifteen minutes, when a sixth (or eleventh) arrives, then the response is a 429 problem with `Retry-After`, even with the right password; sign-up and password change have their own limits.
+**AC12. Sign-in, sign-up and password change are rate limited.** Given five failed sign-in attempts for one address, or ten from one IP, within fifteen minutes, when a sixth (or eleventh) arrives, then the response is a 429 problem with `Retry-After`, even with the right password; wrong guesses through password change and account deletion count in the same per-account bucket as sign-in, so a stolen session gets no extra allowance; sign-up has its own limits.
 
 ### Contributing
 
@@ -140,7 +140,7 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC26. Nothing personal in the log.** Given a sign-up, a failed sign-in, a report with a note and a problem report, when the log output is searched, then it contains no email address, password, session token, note text or report text.
 
-**AC27. Production refuses development values.** Given `WORKSPOTS_ENV=production`, when `DATABASE_URL` is missing, carries a development password, or `BASE_URL` is not `https`, then the process exits non-zero naming the variable (not its value); given development mode, the same configuration starts.
+**AC27. Production refuses development values.** Given `WORKSPOTS_ENV=production`, when `DATABASE_URL` is missing, carries a development password, `BASE_URL` is not `https`, or `TRUSTED_PROXY` is missing (production always sits behind the TLS proxy; without it every client would share one rate-limit bucket), then the process exits non-zero naming the variable (not its value); given development mode, the same configuration starts.
 
 **AC28. Accessible in every state.** Given every page the end-to-end tests reach (empty, with results, validation failure, signed in and out, moderation), when axe-core runs against WCAG 2.2 AA, then it reports no violations; every journey can be completed with the keyboard alone with a visible focus indicator; at 320 CSS pixels wide (400% zoom) no page scrolls horizontally.
 

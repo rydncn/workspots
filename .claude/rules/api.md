@@ -13,7 +13,7 @@ Adapted from the playbook's `templates/rules/api.md` for a Go server that render
 
 ## Secure by default
 
-- Every route that changes anything needs a signed-in session, and the domain checks the specific resource (author, moderator, admin), not just "signed in". Every such route has a test where a different signed-in user is refused. Public routes are: `GET /`, `GET /search`, `GET /spots/{id}`, `GET /static/`, the sign-in and sign-up pages, and `GET /healthz`.
+- Every route that changes anything needs a signed-in session, and the domain checks the specific resource (author, moderator, admin), not just "signed in". Every such route has a test where a different signed-in user is refused. Public routes are: `GET /`, `GET /search`, `GET /spots/{id}`, `GET /static/`, the sign-in and sign-up pages, `GET /account/deleted` and `GET /healthz`.
 - Validate every form field and path value at the edge, in the handler, before the domain sees it; the domain validates again with its own named errors. Unknown fields are ignored (HTML forms), unknown paths are 404.
 - A `GET` never changes state.
 
@@ -34,7 +34,7 @@ Adapted from the playbook's `templates/rules/api.md` for a Go server that render
 - Security headers come from the one `securityHeaders` middleware: the CSP in `middleware.go` with no `unsafe-inline` or `unsafe-eval`, HSTS in production, `nosniff`, `strict-origin-when-cross-origin`. No inline scripts or styles anywhere, so the CSP never needs loosening.
 - The session cookie is `__Host-session`: `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`. The session ID is 256 random bits, stored as a SHA-256 hash, replaced at sign-in and at any change of privilege, and deleted on the server at sign-out.
 - CSRF: every `POST` carries a token that is an HMAC-SHA256 of the session ID (or `anonymous`) keyed by the secret in the `__Host-csrf` cookie, and a same-origin `Origin` or `Sec-Fetch-Site`. Both cookies rotate at sign-in. A missing or wrong token is a 403 problem.
-- Sign-in, sign-up and password change are rate limited per account key and per client IP; the client IP is `X-Forwarded-For`'s last hop only when the connection comes from `TRUSTED_PROXY`. Failure messages never say whether an account exists.
+- Every route that checks an account's password (sign-in, password change, deletion) counts wrong guesses in one bucket per account, five in fifteen minutes, so a stolen session gets no extra allowance; each route also limits per client IP, and sign-up per IP and per address (so many IPs cannot flood one address with mail); the client IP is `X-Forwarded-For`'s last hop only when the connection comes from `TRUSTED_PROXY`, which production requires. Take the per-IP key first and stop at the first refusal (`limiter.takeAll`), so a refused request never allocates a key of unbounded cardinality. Failure messages never say whether an account exists.
 - Passwords: 12 to 1,024 bytes, checked before hashing; argon2id via `golang.org/x/crypto/argon2` with the parameters in `internal/accounts` (ADR 0012).
 - Output goes through `html/template`'s contextual escaping. Any `template.HTML`, `template.JS` or `template.URL` on user data is a review comment.
 - A `next` or return path is used only if it is one of our own paths (starts with a single `/`, no `//`, no scheme); otherwise `/`.

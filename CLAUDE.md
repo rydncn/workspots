@@ -4,7 +4,7 @@ Finds good places to work remotely: cafés, libraries, coworking spaces, hotel l
 
 Set up against ai-playbook `f2fd445`, caught up to `6cb43d9` in slice 5 (the context-budget hook; rule 19, lifecycles, in `docs/design.md`). Its `CHANGELOG.md` lists what changed since, and what to do about each change. This is trial 2 of that playbook's core: feedback on it goes in `docs/playbook-feedback.md`, effort and defects in `docs/trial-log.md`.
 
-Docs: design and acceptance criteria in `docs/design.md`, decisions in `docs/decisions/`, where the work is in `docs/handoff.md`. A slice's plan is its pull request description.
+Docs: design and acceptance criteria in `docs/design.md`, decisions in `docs/decisions/`, where the work is in `docs/handoff.md`, the security audit's report and open leads in `docs/security-audit.md`. A slice's plan is its pull request description.
 
 ## Commands
 
@@ -50,6 +50,7 @@ Request flow: `correlate` → `securityHeaders` → `logRequests` → `recover` 
 - Test-first: write the test, see it fail on its assertion, then the code. Acceptance tests are named `TestAC<n>…` for the criterion in `docs/design.md`, run the real server over HTTP against a real database from `testdb.New`, and call `t.Parallel()`.
 - Templates: `html/template` only, one file per page sharing `layout.html`; never `template.HTML` on user data.
 - SQL: plain, in the domain package that owns the table, parameters only. Migrations are `migrations/NNNN_name.sql`, never edited once merged.
+- Lifecycle fields (`status`, `hidden`, `expires_at`) are read only where their condition is defined or moved (rule 19, `docs/design.md` Lifecycles). `scripts/lifecycle-reads.txt` lists every allowed read; `scripts/check-lifecycle-reads.sh` (CI's checks job) fails on any other, and on a listed read that no longer exists.
 - British English in copy, comments and commits. Conventional commits (`feat:`, `fix:`, `docs:`, `ci:`, `test:`, `chore:`).
 
 ## Area rules
@@ -72,3 +73,7 @@ These load automatically when the agent works on matching files:
 - `DROP DATABASE … WITH (FORCE)` needs the right to end the other role's connections: dev and CI grant `workspots_app` to `workspots_migrate` in `scripts/db-init.sql`. Production never drops databases.
 - `has_table_privilege` with a bare name from `information_schema` resolves against the wrong schema; qualify it with `format('%I.%I', …)`.
 - Commit before breaking a gate on purpose. `git checkout -- <file>` restores the last *commit*, so used on an uncommitted file it wipes the slice's work (slice 5 lost and rewrote `moderation.go`). Break from a clean tree and restore with `git checkout`, or keep a copy.
+- A lifecycle table written from the code documents its bugs (slice 5 recorded approved ↔ rejected as a feature). Write it as what should be allowed and why, then make each difference from the code a finding.
+- A validation error on a page that repeats a form (one hide form per flagged report) is keyed by the item, not the field, or every copy of the form is marked invalid with duplicate ids.
+- Playwright's `getByRole(…, { name })` matches a substring: adding a "Delete account" link broke the "Account" locator. Use `exact: true` when another control's name contains the name.
+- A placeholder that reaches Postgres only in a comparison with itself (`$1 = $1`) has no type and pgx refuses to encode it; cast it (`$1::bigint`).

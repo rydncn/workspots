@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/rydncn/workspots/internal/accounts"
@@ -14,14 +13,18 @@ import (
 	"github.com/rydncn/workspots/internal/spots"
 )
 
-// Rate limits (AC12): failures per address and per IP for sign-in, attempts
-// per IP for sign-up, failures per account for password change, in 15 minutes.
+// Rate limits (AC12), in 15 minutes: wrong guesses at one account's password
+// on any route that checks it (sign-in, password change, deletion), so a
+// stolen session gets no extra allowance; attempts per IP for each route;
+// sign-ups per IP and per address.
 const (
-	signInPerAddress = 5
-	signInPerIP      = 10
-	signUpPerIP      = 10
-	changePerUser    = 5
+	guessesPerAccount = 5
+	signInPerIP       = 10
+	signUpPerIP       = 10
 )
+
+// guessKey is the shared bucket for guesses at the account's password.
+func guessKey(email string) string { return "password:" + strings.ToLower(email) }
 
 type fieldError struct {
 	Field   string `json:"field"`
@@ -61,7 +64,7 @@ func (s *server) signUpPost(w http.ResponseWriter, r *http.Request) {
 		s.invalid(w, r, "sign-up.html", map[string]any{"Email": email}, errs)
 		return
 	}
-	if wait := s.limits.take("signup:ip:"+s.clientIP(r), signUpPerIP); wait > 0 {
+	if wait := s.limits.takeAll(keyLimit{"signup:ip:" + s.clientIP(r), signUpPerIP}, keyLimit{"signup:addr:" + strings.ToLower(email), signUpPerIP}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -93,8 +96,12 @@ func (s *server) signInPost(w http.ResponseWriter, r *http.Request) {
 		s.invalid(w, r, "sign-in.html", data, []fieldError{{"", "Enter your email address and password."}})
 		return
 	}
-	addrKey, ipKey := "signin:addr:"+strings.ToLower(email), "signin:ip:"+s.clientIP(r)
-	if wait := max(s.limits.take(addrKey, signInPerAddress), s.limits.take(ipKey, signInPerIP)); wait > 0 {
+	if accounts.ValidateEmail(email) != nil { // never an account; the same answer as a wrong password
+		s.invalid(w, r, "sign-in.html", data, []fieldError{{"", accounts.ErrInvalidCredentials.Error()}})
+		return
+	}
+	addrKey, ipKey := guessKey(email), "signin:ip:"+s.clientIP(r)
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{addrKey, guessesPerAccount}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -156,8 +163,8 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	key, ipKey := "pwchange:user:"+itoa(u.ID), "pwchange:ip:"+s.clientIP(r)
-	if wait := max(s.limits.take(key, changePerUser), s.limits.take(ipKey, signInPerIP)); wait > 0 {
+	key, ipKey := guessKey(u.Email), "pwchange:ip:"+s.clientIP(r)
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, guessesPerAccount}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -182,6 +189,48 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 	s.send(r, mail.Message{Kind: "password-changed", To: u.Email, Subject: "Your Workspots password was changed",
 		Body: "Your password was just changed and your other sessions were signed out. If this was not you, change it again at " + s.cfg.BaseURL + "/account/password"})
 	http.Redirect(w, r, "/account?changed=1", http.StatusSeeOther)
+}
+
+func (s *server) deleteForm(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireUser(w, r); !ok {
+		return
+	}
+	s.render(w, r, http.StatusOK, "delete-account.html", map[string]any{})
+}
+
+// deletePost deletes the signed-in account once its password is confirmed
+// (AC11), signs the browser out and sends the farewell to the address the
+// database no longer holds.
+func (s *server) deletePost(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.requireUser(w, r)
+	if !ok {
+		return
+	}
+	key, ipKey := guessKey(u.Email), "delete:ip:"+s.clientIP(r)
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, guessesPerAccount}); wait > 0 {
+		s.rateLimited(w, r, wait)
+		return
+	}
+	err := accounts.Delete(r.Context(), s.db, u.ID, r.PostForm.Get("password"))
+	if errors.Is(err, accounts.ErrInvalidCredentials) {
+		s.invalid(w, r, "delete-account.html", map[string]any{}, []fieldError{{"password", "The password is not right."}})
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.limits.refund(key)
+	s.limits.refund(ipKey)
+	setCookie(w, sessionCookie, "", -1)
+	s.log.InfoContext(r.Context(), "account deleted", "user_id", u.ID)
+	s.send(r, mail.Message{Kind: "account-deleted", To: u.Email, Subject: "Your Workspots account has been deleted",
+		Body: "Your account, its sessions, reports and problem reports are gone. Spots you added that were approved stay, with no author. If this was not you, we cannot restore it, but you can sign up again at " + s.cfg.BaseURL + "/sign-up"})
+	http.Redirect(w, r, "/account/deleted", http.StatusSeeOther)
+}
+
+func (s *server) deleted(w http.ResponseWriter, r *http.Request) {
+	s.render(w, r, http.StatusOK, "account-deleted.html", map[string]any{})
 }
 
 // send delivers a message in a goroutine that outlives the response but keeps
@@ -219,5 +268,3 @@ func (s *server) rateLimited(w http.ResponseWriter, r *http.Request, wait int) {
 	w.Header().Set("Retry-After", retryHeader(wait))
 	s.writeProblem(w, r, tooMany)
 }
-
-func itoa(n int64) string { return strconv.FormatInt(n, 10) }

@@ -62,5 +62,11 @@ func Load(getenv func(string) string) (Config, error) {
 	if !strings.HasPrefix(c.BaseURL, "https://") {
 		return c, fmt.Errorf("BASE_URL must be https in production")
 	}
+	// Production always sits behind the TLS proxy (docs/design.md, Release
+	// rehearsal). Without TRUSTED_PROXY every client would share the proxy's
+	// address, so one client's failures would rate-limit everyone.
+	if c.TrustedProxy == "" {
+		return c, errors.New("TRUSTED_PROXY is not set")
+	}
 	return c, nil
 }

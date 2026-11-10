@@ -47,6 +47,24 @@ func (l *limiter) take(key string, limit int) int {
 	return 0
 }
 
+// keyLimit is one key and its limit for takeAll.
+type keyLimit struct {
+	key   string
+	limit int
+}
+
+// takeAll takes one attempt against each key in order and stops at the first
+// refusal, so a request the per-IP key refuses is never counted against a
+// key of unbounded cardinality (an address) listed after it.
+func (l *limiter) takeAll(keys ...keyLimit) int {
+	for _, k := range keys {
+		if wait := l.take(k.key, k.limit); wait > 0 {
+			return wait
+		}
+	}
+	return 0
+}
+
 // refund forgets the most recent attempt against key (it succeeded).
 func (l *limiter) refund(key string) {
 	l.mu.Lock()

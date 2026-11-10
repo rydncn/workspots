@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,6 +42,9 @@ type server struct {
 	mail   mail.Sender
 	limits *limiter
 	tpl    map[string]*template.Template
+	// untrustedPeer logs once that a connection came from a peer other than
+	// TRUSTED_PROXY, so a misconfigured proxy address is visible.
+	untrustedPeer sync.Once
 }
 
 // New returns the application's handler.
@@ -60,6 +64,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /account", s.account)
 	mux.HandleFunc("GET /account/password", s.passwordForm)
 	mux.HandleFunc("POST /account/password", s.passwordPost)
+	mux.HandleFunc("GET /account/delete", s.deleteForm)
+	mux.HandleFunc("POST /account/delete", s.deletePost)
+	mux.HandleFunc("GET /account/deleted", s.deleted)
 	mux.HandleFunc("GET /spots/new", s.newSpotForm)
 	mux.HandleFunc("POST /spots/new", s.newSpotPost)
 	mux.HandleFunc("GET /spots/{id}/reports/new", s.newReportForm)

@@ -31,3 +31,17 @@ func TestValidatePassword(t *testing.T) {
 		t.Error("maximum is 1,024 bytes")
 	}
 }
+
+// ValidateEmail refuses what Postgres would refuse later (a NUL byte, invalid
+// UTF-8), so the form answers 422 rather than a 500 (security audit, slice 6).
+func TestValidateEmailRefusesWhatPostgresWould(t *testing.T) {
+	t.Parallel()
+	for _, email := range []string{"nul\x00@example.test", "bad\xff@example.test", "a b@example.test", "@example.test", "nobody"} {
+		if ValidateEmail(email) == nil {
+			t.Errorf("%q accepted", email)
+		}
+	}
+	if err := ValidateEmail("someone@example.test"); err != nil {
+		t.Error(err)
+	}
+}

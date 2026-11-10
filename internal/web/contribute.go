@@ -33,7 +33,11 @@ func (s *server) limitMember(w http.ResponseWriter, r *http.Request, kind string
 	return true
 }
 
-func field(r *http.Request, name string) string { return strings.TrimSpace(r.PostForm.Get(name)) }
+// field reads a form value, trimmed and without the bytes Postgres refuses (NUL,
+// invalid UTF-8), as readSearch does for the query string.
+func field(r *http.Request, name string) string {
+	return strings.TrimSpace(strings.ToValidUTF8(strings.ReplaceAll(r.PostForm.Get(name), "\x00", ""), ""))
+}
 
 func tooLong(s string, n int) bool { return utf8.RuneCountInString(s) > n }
 

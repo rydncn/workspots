@@ -59,10 +59,11 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-// ValidateEmail is deliberately loose: something@something, no spaces, short enough.
+// ValidateEmail is deliberately loose: something@something, no spaces, short
+// enough, and nothing Postgres would refuse (a NUL byte, invalid UTF-8).
 func ValidateEmail(email string) error {
 	at := strings.Index(email, "@")
-	if len(email) < 3 || len(email) > 254 || at < 1 || at == len(email)-1 || strings.ContainsAny(email, " \t\r\n") {
+	if len(email) < 3 || len(email) > 254 || at < 1 || at == len(email)-1 || strings.ContainsAny(email, " \t\r\n\x00") || !utf8.ValidString(email) {
 		return ErrInvalidEmail
 	}
 	return nil
@@ -172,23 +173,33 @@ func EndOtherSessions(ctx context.Context, db *pgxpool.Pool, userID int64, keepT
 	return err
 }
 
-// ChangePassword replaces the password once the current one is confirmed.
-func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current, next string) error {
+// confirm checks the account's own password before a sensitive change, or
+// returns ErrInvalidCredentials.
+func confirm(ctx context.Context, db *pgxpool.Pool, userID int64, password string) error {
 	var hash string
 	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash); err != nil {
 		return err
 	}
-	if len(current) > 1024 {
+	if len(password) > 1024 {
 		return ErrInvalidCredentials
 	}
 	var ok bool
-	if err := withHashSlot(ctx, func() { ok = verifyPassword(hash, current) }); err != nil {
+	if err := withHashSlot(ctx, func() { ok = verifyPassword(hash, password) }); err != nil {
 		return err
 	}
 	if !ok {
 		return ErrInvalidCredentials
 	}
+	return nil
+}
+
+// ChangePassword replaces the password once the current one is confirmed. The
+// new password's length is checked first, before any hashing (AC7).
+func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current, next string) error {
 	if err := ValidatePassword(next); err != nil {
+		return err
+	}
+	if err := confirm(ctx, db, userID, current); err != nil {
 		return err
 	}
 	var newHash string
@@ -200,6 +211,27 @@ func ChangePassword(ctx context.Context, db *pgxpool.Pool, userID int64, current
 		return hashErr
 	}
 	_, err := db.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, newHash)
+	return err
+}
+
+// Delete removes the account once its password is confirmed (AC11, ADR 0011).
+// With the user row go its sessions, reports and problem reports (ON DELETE
+// CASCADE) and any spot of theirs not yet approved; an approved spot describes
+// a place, so it stays with no author, and a decision they made as a moderator
+// keeps no name (ON DELETE SET NULL). One statement, so all or nothing.
+//
+// The withdrawal guard reads the row's own status rather than the public_spots
+// view on purpose: a subquery is evaluated on the statement's snapshot, so a
+// spot approved while this statement waited on its row would still be deleted;
+// a predicate on the row itself is re-checked on the row's new version
+// (scripts/lifecycle-reads.txt lists it).
+func Delete(ctx context.Context, db *pgxpool.Pool, userID int64, password string) error {
+	if err := confirm(ctx, db, userID, password); err != nil {
+		return err
+	}
+	_, err := db.Exec(ctx, `WITH withdrawn AS (
+			DELETE FROM spots WHERE created_by = $1 AND status <> 'approved')
+		DELETE FROM users WHERE id = $1`, userID)
 	return err
 }
 

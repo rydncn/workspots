@@ -225,7 +225,13 @@ func TestAC10ChangePassword(t *testing.T) {
 	other.signIn(email, goodPassword)
 
 	const newPassword = "a different long password"
-	res, body := b.post("/account/password", "/account/password", url.Values{"current": {"wrong current pw"}, "password": {newPassword}})
+	// AC7: the length is checked before any hashing, so an over-long new
+	// password is refused as such even when the current one is wrong.
+	res, body := b.post("/account/password", "/account/password", url.Values{"current": {"wrong current pw"}, "password": {strings.Repeat("x", 1025)}})
+	if res.StatusCode != 422 || !strings.Contains(body, `id="password-error"`) {
+		t.Fatalf("over-long new password: %d, named the new password=%v", res.StatusCode, strings.Contains(body, `id="password-error"`))
+	}
+	res, body = b.post("/account/password", "/account/password", url.Values{"current": {"wrong current pw"}, "password": {newPassword}})
 	if res.StatusCode != 422 || !strings.Contains(body, `class="error"`) {
 		t.Fatalf("wrong current password: %d", res.StatusCode)
 	}
@@ -260,6 +266,23 @@ func TestAC12RateLimits(t *testing.T) {
 	setup := a.browser(t)
 	setup.signUp(email, goodPassword)
 
+	t.Run("sign-up per address", func(t *testing.T) {
+		// .claude/rules/api.md: sign-up is limited per account key too, so many
+		// IPs cannot flood one address with "you already have an account" mail.
+		target := unique("flood")
+		for i := 0; i < 10; i++ {
+			b := a.browser(t)
+			b.ip = fmt.Sprintf("10.7.0.%d", i+1)
+			if res, _ := b.post("/sign-up", "/sign-up", url.Values{"email": {target}, "password": {goodPassword}}); res.StatusCode != 200 {
+				t.Fatalf("sign-up %d: %d", i+1, res.StatusCode)
+			}
+		}
+		b := a.browser(t)
+		b.ip = "10.7.0.99"
+		if res, _ := b.post("/sign-up", "/sign-up", url.Values{"email": {target}, "password": {goodPassword}}); res.StatusCode != 429 {
+			t.Errorf("eleventh sign-up for one address: %d", res.StatusCode)
+		}
+	})
 	t.Run("per address", func(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			b := a.browser(t)
@@ -500,4 +523,214 @@ func TestAC25CorrelationIDReachesTheGoroutine(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("no 'mail sent' log line")
+}
+
+// AC11: deleting the account with the right password removes the user, its
+// sessions, reports, problem reports and pending spot; an approved spot stays
+// with no author, a decision it made keeps no name, and the visitor is signed
+// out (ADR 0011). A wrong password changes nothing.
+func TestAC11DeleteAccount(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "ac11")
+	other := a.browser(t)
+	other.signIn(b.email, goodPassword)
+	ctx := context.Background()
+	var userID int64
+	if err := a.admin.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, b.email).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	approved := a.addSpotWith(t, "Kept Café", "Leeds", "approved", attrs{Wifi: 2, Noise: 2})
+	pending := a.addSpotWith(t, "Gone Café", "Leeds", "pending", attrs{Wifi: 2, Noise: 2})
+	decided := a.addSpotWith(t, "Decided Café", "Leeds", "approved", attrs{Wifi: 2, Noise: 2})
+	if _, err := a.admin.Exec(ctx, `UPDATE spots SET created_by = $1 WHERE id IN ($2, $3)`, userID, approved, pending); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.admin.Exec(ctx, `UPDATE spots SET moderated_by = $1, moderated_at = now() WHERE id = $2`, userID, decided); err != nil {
+		t.Fatal(err)
+	}
+	a.addReportBy(t, userID, approved, attrs{Wifi: 4, Noise: 1}, "my report", false, 1)
+	if _, err := a.admin.Exec(ctx, `INSERT INTO problem_reports (spot_id, reporter_id, reason) VALUES ($1, $2, 'my problem')`, decided, userID); err != nil {
+		t.Fatal(err)
+	}
+	count := func(query string) int64 {
+		t.Helper()
+		var n int64
+		if err := a.admin.QueryRow(ctx, query, userID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	res, body := b.get("/account")
+	if res.StatusCode != 200 || !strings.Contains(body, "/account/delete") {
+		t.Fatalf("account page: %d, offers deletion=%v", res.StatusCode, strings.Contains(body, "/account/delete"))
+	}
+	res, body = b.post("/account/delete", "/account/delete", url.Values{"password": {"not the password"}})
+	if res.StatusCode != 422 || !strings.Contains(body, `class="error"`) {
+		t.Fatalf("wrong password: %d", res.StatusCode)
+	}
+	if n := count(`SELECT count(*) FROM users WHERE id = $1`); n != 1 {
+		t.Fatalf("wrong password deleted the account")
+	}
+
+	res, _ = b.post("/account/delete", "/account/delete", url.Values{"password": {goodPassword}})
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/account/deleted" {
+		t.Fatalf("delete: %d to %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	res, body = b.get("/account/deleted")
+	if res.StatusCode != 200 || !strings.Contains(body, "Your account has been deleted") || strings.Contains(body, b.email) {
+		t.Errorf("confirmation page: %d, shows address=%v", res.StatusCode, strings.Contains(body, b.email))
+	}
+
+	for query, want := range map[string]int64{
+		`SELECT count(*) FROM users WHERE id = $1`:                                                                          0,
+		`SELECT count(*) FROM sessions WHERE user_id = $1`:                                                                  0,
+		`SELECT count(*) FROM reports WHERE author_id = $1`:                                                                 0,
+		`SELECT count(*) FROM problem_reports WHERE reporter_id = $1`:                                                       0,
+		`SELECT count(*) FROM spots WHERE created_by = $1 OR moderated_by = $1`:                                             0,
+		`SELECT count(*) FROM spots WHERE name IN ('Kept Café', 'Decided Café') AND created_by IS NULL AND $1::bigint <> 0`: 2,
+		`SELECT count(*) FROM spots WHERE name = 'Gone Café' AND $1::bigint <> 0`:                                           0,
+	} {
+		if n := count(query); n != want {
+			t.Errorf("%s: %d, want %d", query, n, want)
+		}
+	}
+	if b.cookie("__Host-session") != nil {
+		t.Error("session cookie not cleared")
+	}
+	for name, br := range map[string]*browser{"deleting": b, "other": other} {
+		if res, _ := br.get("/account"); res.StatusCode != 303 {
+			t.Errorf("%s session still signed in: %d", name, res.StatusCode)
+		}
+	}
+	if res, _ := a.browser(t).signIn(b.email, goodPassword); res.StatusCode != 422 {
+		t.Errorf("deleted account can sign in: %d", res.StatusCode)
+	}
+	if kinds := waitForMail(t, a, 2); kinds[len(kinds)-1] != "account-deleted" {
+		t.Errorf("mail kinds %v", kinds)
+	}
+	if _, body := staff(t, a, "ac11mod", "moderator").get("/moderation"); !strings.Contains(body, "a deleted account") {
+		t.Error("the queue's history names a deleted moderator")
+	}
+	if strings.Contains(a.logs.String(), b.email) {
+		t.Error("the address reached the log")
+	}
+}
+
+// Behind a proxy whose address is not TRUSTED_PROXY every client shares the
+// peer's address and so one rate-limit bucket; the misconfiguration is logged
+// once, without the address (security audit, slice 6).
+func TestUntrustedPeerIsLoggedOnce(t *testing.T) {
+	t.Parallel()
+	a := newAppWith(t, map[string]string{"TRUSTED_PROXY": "10.9.9.9"})
+	b := a.browser(t)
+	for i := 0; i < 2; i++ {
+		b.signIn(unique("peer"), goodPassword)
+	}
+	if n := strings.Count(a.logs.String(), "other than TRUSTED_PROXY"); n != 1 {
+		t.Errorf("untrusted peer logged %d times, want once", n)
+	}
+	if strings.Contains(a.logs.String(), "127.0.0.1") {
+		t.Error("the peer address reached the log")
+	}
+}
+
+// AC11 under a race (whole-codebase review, MUST-FIX): a moderator approves the
+// member's pending spot while the member deletes their account. The spot was
+// approved, so it stays, anonymised; it must not vanish because the deletion
+// decided on a snapshot from before the approval.
+func TestAC11DeleteKeepsASpotApprovedMeanwhile(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "ac11race")
+	ctx := context.Background()
+	var userID int64
+	if err := a.admin.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, b.email).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	spot := a.addSpotWith(t, "Racing Café", "Leeds", "pending", attrs{Wifi: 2, Noise: 2})
+	if _, err := a.admin.Exec(ctx, `UPDATE spots SET created_by = $1 WHERE id = $2`, userID, spot); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := a.admin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE spots SET status = 'approved', moderated_at = now() WHERE id = $1`, spot); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan int, 1)
+	go func() { // blocks on the row the approval holds until the commit below
+		res, _ := b.post("/account/delete", "/account/delete", url.Values{"password": {goodPassword}})
+		done <- res.StatusCode
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if status := <-done; status != 303 {
+		t.Fatalf("delete: %d", status)
+	}
+	var kept bool
+	if err := a.admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM spots WHERE id = $1 AND status = 'approved' AND created_by IS NULL)`, spot).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if !kept {
+		t.Error("the spot approved during the deletion is gone")
+	}
+}
+
+// Bytes Postgres refuses (invalid UTF-8, NUL) in any field are a 422 or are
+// cleaned, never a 500 (whole-codebase review).
+func TestInvalidBytesNeverReachPostgres(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "bytes")
+	form := spotForm("Byte Caf\xff")
+	form.Set("area", "Le\xffeds\x00")
+	if res, _ := b.post("/spots/new", "/spots/new", form); res.StatusCode != 303 {
+		t.Errorf("spot with invalid bytes: %d, want 303 after cleaning", res.StatusCode)
+	}
+	if res, _ := a.browser(t).signIn("ba\xffd@example.test", goodPassword); res.StatusCode != 422 {
+		t.Errorf("sign-in with invalid bytes: %d, want 422", res.StatusCode)
+	}
+}
+
+// Every route that checks the account's password (sign-in, password change,
+// deletion) shares one bucket of five failures per account, so a stolen
+// session does not get three allowances of guesses (outside review, slice 6).
+func TestPasswordGuessesAreLimitedTogether(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "guess")
+	guesser := a.browser(t)
+	guesser.ip = "10.8.0.1"
+	post := func(action string, form url.Values) int {
+		res, _ := b.post(action, action, form)
+		return res.StatusCode
+	}
+	for i := 0; i < 2; i++ { // two wrong sign-ins
+		if res, _ := guesser.signIn(b.email, "wrong password here"); res.StatusCode != 422 {
+			t.Fatalf("sign-in guess %d: %d", i+1, res.StatusCode)
+		}
+	}
+	for i := 0; i < 2; i++ { // two wrong current passwords
+		if got := post("/account/password", url.Values{"current": {"wrong password here"}, "password": {"another long password"}}); got != 422 {
+			t.Fatalf("password change guess %d: %d", i+1, got)
+		}
+	}
+	if got := post("/account/delete", url.Values{"password": {"wrong password here"}}); got != 422 { // the fifth guess
+		t.Fatalf("deletion guess: %d", got)
+	}
+	// The sixth guess is refused on every route, right password included.
+	if got := post("/account/delete", url.Values{"password": {goodPassword}}); got != 429 {
+		t.Errorf("sixth guess via deletion: %d, want 429", got)
+	}
+	if got := post("/account/password", url.Values{"current": {goodPassword}, "password": {"another long password"}}); got != 429 {
+		t.Errorf("sixth guess via password change: %d, want 429", got)
+	}
+	if res, _ := guesser.signIn(b.email, goodPassword); res.StatusCode != 429 {
+		t.Errorf("sixth guess via sign-in: %d, want 429", res.StatusCode)
+	}
 }

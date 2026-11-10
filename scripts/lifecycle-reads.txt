@@ -1,0 +1,14 @@
+# Every read of a lifecycle field (status, hidden, expires_at) in Go code or a
+# template, one exact fragment per line, with the Lifecycles row it implements
+# (docs/design.md). scripts/check-lifecycle-reads.sh fails on a read that is
+# not listed here, and on a line here that matches nothing (rule 19).
+WHERE s.status = 'pending' ORDER BY s.created_at	spot: on the queue (spots.Pending)
+UPDATE spots SET status = $2, moderated_by = $3	spot: the one move (moderation.SetStatus)
+WHERE id = $1 AND status = 'pending'	spot: decided once, the guard (moderation.SetStatus)
+DELETE FROM spots WHERE created_by = $1 AND status <> 'approved'	spot: withdrawn with its author, on the row's own column (accounts.Delete)
+UPDATE reports SET hidden = true, hidden_reason = $2, hidden_at = now() WHERE id = $1 AND NOT hidden	report: the one move and its guard (moderation.HideReport)
+UPDATE problem_reports SET status = 'resolved' WHERE id = $1 AND status = 'open'	problem: the one move and its guard (moderation.Resolve)
+WHERE p.status = 'open' ORDER BY p.created_at	problem: on the queue (moderation.OpenProblems)
+const expired = `expires_at <= now()`	session: the one definition (accounts.expired)
+{{if ne .Spot.Status "approved"}}	spot page: the notice on a spot only its author and moderators see (display)
+{{if eq .Spot.Status "approved"}}	spot page: the report and problem links on a public spot (display)

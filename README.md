@@ -22,4 +22,15 @@ MIGRATE_DATABASE_URL=postgres://workspots_migrate:dev-migrate@localhost:5432/wor
 
 ## Configuration
 
-All from the environment (`internal/config`): `WORKSPOTS_ENV` (`development` or `production`), `ADDR`, `DATABASE_URL`, `BASE_URL`, `TRUSTED_PROXY`, `LOG_LEVEL`. In production the process refuses to start with a missing or development value. An operator creates the two database roles (`scripts/db-init.sql` shows them) with real passwords, creates the database **owned by `workspots_migrate`**, and runs `workspots migrate` as that role; the first migration refuses any other owner.
+All from the environment (`internal/config`): `WORKSPOTS_ENV` (`development` or `production`), `ADDR`, `DATABASE_URL`, `BASE_URL`, `TRUSTED_PROXY`, `LOG_LEVEL`. In production the process refuses to start with a missing or development value, `TRUSTED_PROXY` included: the app always sits behind the TLS proxy there, and without it every client would share the proxy's address in the rate limits. An operator creates the two database roles (`scripts/db-init.sql` shows them) with real passwords, creates the database **owned by `workspots_migrate`**, and runs `workspots migrate` as that role; the first migration refuses any other owner.
+
+## Container
+
+`Dockerfile` builds the production image (ADR 0008): a static binary on distroless, running as nonroot, with no shell. The app never terminates TLS; a reverse proxy does, and the app trusts `X-Forwarded-For` only from `TRUSTED_PROXY`. CI's release rehearsal builds the image, runs `migrate` from it, starts it in production mode behind Caddy with a throwaway certificate, runs the smoke subset of the end-to-end tests against it and scans it (`docs/design.md`, Release rehearsal). To run it yourself:
+
+```bash
+docker build -t workspots .
+docker run --rm -e MIGRATE_DATABASE_URL=postgres://workspots_migrate:…@db/workspots workspots migrate
+docker run -d -p 8080:8080 -e ADDR=:8080 -e WORKSPOTS_ENV=production -e BASE_URL=https://spots.example \
+  -e TRUSTED_PROXY=<the proxy's address> -e DATABASE_URL=postgres://workspots_app:…@db/workspots workspots
+```

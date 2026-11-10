@@ -261,7 +261,9 @@ jobs:
         run: docker logs app; docker logs caddy
       # GATES.md, Containers: the built image scanned, failing on high and
       # critical. An advisory nobody can fix yet goes in a .trivyignore with an
-      # expiry (exp:YYYY-MM-DD), the same dated-allowlist rule as the audits.
+      # expiry (exp:YYYY-MM-DD), the same dated-allowlist rule as the audits;
+      # ignore-unfixed skips what no base-image release fixes yet, which the
+      # weekly Dependabot digest bump picks up when one does.
       - name: Scan the image
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:

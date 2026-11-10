@@ -4,6 +4,9 @@
 # The release rehearsal in CI builds, runs, smoke-tests and scans this image.
 FROM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS build
 WORKDIR /src
+# A toolchain bump in go.mod above the pinned base fails the build rather than
+# downloading a toolchain the digest does not cover.
+ENV GOTOOLCHAIN=local
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .

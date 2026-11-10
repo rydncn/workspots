@@ -59,10 +59,11 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-// ValidateEmail is deliberately loose: something@something, no spaces, short enough.
+// ValidateEmail is deliberately loose: something@something, no spaces, short
+// enough, and nothing Postgres would refuse (a NUL byte, invalid UTF-8).
 func ValidateEmail(email string) error {
 	at := strings.Index(email, "@")
-	if len(email) < 3 || len(email) > 254 || at < 1 || at == len(email)-1 || strings.ContainsAny(email, " \t\r\n") {
+	if len(email) < 3 || len(email) > 254 || at < 1 || at == len(email)-1 || strings.ContainsAny(email, " \t\r\n\x00") || !utf8.ValidString(email) {
 		return ErrInvalidEmail
 	}
 	return nil

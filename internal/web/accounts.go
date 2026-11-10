@@ -61,7 +61,7 @@ func (s *server) signUpPost(w http.ResponseWriter, r *http.Request) {
 		s.invalid(w, r, "sign-up.html", map[string]any{"Email": email}, errs)
 		return
 	}
-	if wait := s.limits.take("signup:ip:"+s.clientIP(r), signUpPerIP); wait > 0 {
+	if wait := s.limits.takeAll(keyLimit{"signup:ip:" + s.clientIP(r), signUpPerIP}, keyLimit{"signup:addr:" + strings.ToLower(email), signUpPerIP}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -91,6 +91,10 @@ func (s *server) signInPost(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{"Email": email, "Next": next}
 	if email == "" || password == "" {
 		s.invalid(w, r, "sign-in.html", data, []fieldError{{"", "Enter your email address and password."}})
+		return
+	}
+	if accounts.ValidateEmail(email) != nil { // never an account; the same answer as a wrong password
+		s.invalid(w, r, "sign-in.html", data, []fieldError{{"", accounts.ErrInvalidCredentials.Error()}})
 		return
 	}
 	addrKey, ipKey := "signin:addr:"+strings.ToLower(email), "signin:ip:"+s.clientIP(r)

@@ -50,6 +50,7 @@ Request flow: `correlate` → `securityHeaders` → `logRequests` → `recover` 
 - Test-first: write the test, see it fail on its assertion, then the code. Acceptance tests are named `TestAC<n>…` for the criterion in `docs/design.md`, run the real server over HTTP against a real database from `testdb.New`, and call `t.Parallel()`.
 - Templates: `html/template` only, one file per page sharing `layout.html`; never `template.HTML` on user data.
 - SQL: plain, in the domain package that owns the table, parameters only. Migrations are `migrations/NNNN_name.sql`, never edited once merged.
+- Lifecycle fields (`status`, `hidden`, `expires_at`) are read only where their condition is defined or moved (rule 19, `docs/design.md` Lifecycles). `scripts/lifecycle-reads.txt` lists every allowed read; `scripts/check-lifecycle-reads.sh` (CI's checks job) fails on any other, and on a listed read that no longer exists.
 - British English in copy, comments and commits. Conventional commits (`feat:`, `fix:`, `docs:`, `ci:`, `test:`, `chore:`).
 
 ## Area rules

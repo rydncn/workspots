@@ -225,7 +225,13 @@ func TestAC10ChangePassword(t *testing.T) {
 	other.signIn(email, goodPassword)
 
 	const newPassword = "a different long password"
-	res, body := b.post("/account/password", "/account/password", url.Values{"current": {"wrong current pw"}, "password": {newPassword}})
+	// AC7: the length is checked before any hashing, so an over-long new
+	// password is refused as such even when the current one is wrong.
+	res, body := b.post("/account/password", "/account/password", url.Values{"current": {"wrong current pw"}, "password": {strings.Repeat("x", 1025)}})
+	if res.StatusCode != 422 || !strings.Contains(body, `id="password-error"`) {
+		t.Fatalf("over-long new password: %d, named the new password=%v", res.StatusCode, strings.Contains(body, `id="password-error"`))
+	}
+	res, body = b.post("/account/password", "/account/password", url.Values{"current": {"wrong current pw"}, "password": {newPassword}})
 	if res.StatusCode != 422 || !strings.Contains(body, `class="error"`) {
 		t.Fatalf("wrong current password: %d", res.StatusCode)
 	}
@@ -260,6 +266,23 @@ func TestAC12RateLimits(t *testing.T) {
 	setup := a.browser(t)
 	setup.signUp(email, goodPassword)
 
+	t.Run("sign-up per address", func(t *testing.T) {
+		// .claude/rules/api.md: sign-up is limited per account key too, so many
+		// IPs cannot flood one address with "you already have an account" mail.
+		target := unique("flood")
+		for i := 0; i < 10; i++ {
+			b := a.browser(t)
+			b.ip = fmt.Sprintf("10.7.0.%d", i+1)
+			if res, _ := b.post("/sign-up", "/sign-up", url.Values{"email": {target}, "password": {goodPassword}}); res.StatusCode != 200 {
+				t.Fatalf("sign-up %d: %d", i+1, res.StatusCode)
+			}
+		}
+		b := a.browser(t)
+		b.ip = "10.7.0.99"
+		if res, _ := b.post("/sign-up", "/sign-up", url.Values{"email": {target}, "password": {goodPassword}}); res.StatusCode != 429 {
+			t.Errorf("eleventh sign-up for one address: %d", res.StatusCode)
+		}
+	})
 	t.Run("per address", func(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			b := a.browser(t)
@@ -610,5 +633,66 @@ func TestUntrustedPeerIsLoggedOnce(t *testing.T) {
 	}
 	if strings.Contains(a.logs.String(), "127.0.0.1") {
 		t.Error("the peer address reached the log")
+	}
+}
+
+// AC11 under a race (whole-codebase review, MUST-FIX): a moderator approves the
+// member's pending spot while the member deletes their account. The spot was
+// approved, so it stays, anonymised; it must not vanish because the deletion
+// decided on a snapshot from before the approval.
+func TestAC11DeleteKeepsASpotApprovedMeanwhile(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "ac11race")
+	ctx := context.Background()
+	var userID int64
+	if err := a.admin.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, b.email).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	spot := a.addSpotWith(t, "Racing Café", "Leeds", "pending", attrs{Wifi: 2, Noise: 2})
+	if _, err := a.admin.Exec(ctx, `UPDATE spots SET created_by = $1 WHERE id = $2`, userID, spot); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := a.admin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE spots SET status = 'approved', moderated_at = now() WHERE id = $1`, spot); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan int, 1)
+	go func() { // blocks on the row the approval holds until the commit below
+		res, _ := b.post("/account/delete", "/account/delete", url.Values{"password": {goodPassword}})
+		done <- res.StatusCode
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if status := <-done; status != 303 {
+		t.Fatalf("delete: %d", status)
+	}
+	var kept bool
+	if err := a.admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM spots WHERE id = $1 AND status = 'approved' AND created_by IS NULL)`, spot).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if !kept {
+		t.Error("the spot approved during the deletion is gone")
+	}
+}
+
+// Bytes Postgres refuses (invalid UTF-8, NUL) in any field are a 422 or are
+// cleaned, never a 500 (whole-codebase review).
+func TestInvalidBytesNeverReachPostgres(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "bytes")
+	form := spotForm("Byte Caf\xff")
+	form.Set("area", "Le\xffeds\x00")
+	if res, _ := b.post("/spots/new", "/spots/new", form); res.StatusCode != 303 {
+		t.Errorf("spot with invalid bytes: %d, want 303 after cleaning", res.StatusCode)
+	}
+	if res, _ := a.browser(t).signIn("ba\xffd@example.test", goodPassword); res.StatusCode != 422 {
+		t.Errorf("sign-in with invalid bytes: %d, want 422", res.StatusCode)
 	}
 }

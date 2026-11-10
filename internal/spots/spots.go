@@ -79,11 +79,12 @@ type Viewer struct {
 // Anonymous is a signed-out visitor.
 var Anonymous = Viewer{}
 
-// visible is the one definition of which spots a viewer may see, used by
-// every query that returns spots and nowhere else: approved spots, a
-// member's own spots in any state, and everything for a moderator. Every
-// query that uses it takes the viewer's id as $1 and moderator flag as $2.
-const visible = `(s.status = 'approved' OR s.created_by = $1 OR $2)`
+// visible is the one definition of which spots a viewer may see (Search and
+// Get; Mine and Pending list by owner and by queue): what the public sees,
+// which is the public_spots view and nothing else, a member's own spots in any
+// state, and everything for a moderator. Every query that uses it takes the
+// viewer's id as $1 and moderator flag as $2.
+const visible = `(s.id IN (SELECT id FROM public_spots) OR s.created_by = $1 OR $2)`
 
 // ErrInvalid is returned for a field the database constraints refuse.
 var ErrInvalid = errors.New("the spot or report is not valid")
@@ -146,12 +147,12 @@ func Get(ctx context.Context, db *pgxpool.Pool, viewer Viewer, id int64) (Spot, 
 	return spot, err
 }
 
-// VisibleReports returns a spot's reports that moderators haven't hidden,
-// newest first: every one, as history; only each member's latest votes
-// (the spot_attributes view).
+// VisibleReports returns a spot's reports the public may see (the
+// public_reports view: not hidden, on an approved spot), newest first: every
+// one, as history; only each member's latest votes (the spot_attributes view).
 func VisibleReports(ctx context.Context, db *pgxpool.Pool, spotID int64) ([]Report, error) {
 	rows, err := db.Query(ctx, `SELECT id, note, created_at, wifi, noise, power, time_limit, step_free, accessible_toilet, quiet_space
-		FROM reports WHERE spot_id = $1 AND NOT hidden ORDER BY created_at DESC, id DESC`, spotID)
+		FROM public_reports WHERE spot_id = $1 ORDER BY created_at DESC, id DESC`, spotID)
 	if err != nil {
 		return nil, err
 	}

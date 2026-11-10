@@ -3,6 +3,7 @@ package moderation_test
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -94,6 +95,25 @@ func TestLifecycleTransitions(t *testing.T) {
 			"open":     {"resolve": "resolved"},
 			"resolved": {"resolve": ""},
 		},
+	}
+	// The states come from the database's own CHECK constraints, so a state
+	// added there without a row here fails (the table cannot vouch for itself).
+	for lifecycle, tbl := range map[string]string{"spot": "spots", "problem": "problem_reports"} {
+		var def string
+		if err := admin.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint
+			WHERE conrelid = $1::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%status%'`, tbl).Scan(&def); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range regexp.MustCompile(`'([a-z_]+)'`).FindAllStringSubmatch(def, -1) {
+			if _, ok := table[lifecycle][m[1]]; !ok {
+				t.Errorf("%s state %q is allowed by the database but has no row in the table", lifecycle, m[1])
+			}
+		}
+	}
+	for _, state := range []string{"visible", "hidden"} { // reports.hidden is a boolean
+		if _, ok := table["report"][state]; !ok {
+			t.Errorf("report state %q has no row", state)
+		}
 	}
 	// put makes a row in the state and returns a function reading its state back.
 	put := func(lifecycle, state string) (int64, func() string) {

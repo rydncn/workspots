@@ -64,6 +64,9 @@ jobs:
           if grep -rl '"net/http"' internal --include='*.go' --exclude-dir=web; then
             echo "net/http imported outside internal/web"; exit 1
           fi
+      # Rule 19: lifecycle fields are read only where the design defines them.
+      - name: Lifecycle fields read only where defined
+        run: scripts/check-lifecycle-reads.sh
       - name: No unstructured logging or detached contexts
         run: |
           files=$(find internal -name '*.go' -not -name '*_test.go' | wc -l)

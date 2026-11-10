@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/rydncn/workspots/internal/accounts"
@@ -14,14 +13,18 @@ import (
 	"github.com/rydncn/workspots/internal/spots"
 )
 
-// Rate limits (AC12): failures per address and per IP for sign-in, attempts
-// per IP for sign-up, failures per account for password change, in 15 minutes.
+// Rate limits (AC12), in 15 minutes: wrong guesses at one account's password
+// on any route that checks it (sign-in, password change, deletion), so a
+// stolen session gets no extra allowance; attempts per IP for each route;
+// sign-ups per IP and per address.
 const (
-	signInPerAddress = 5
-	signInPerIP      = 10
-	signUpPerIP      = 10
-	changePerUser    = 5
+	guessesPerAccount = 5
+	signInPerIP       = 10
+	signUpPerIP       = 10
 )
+
+// guessKey is the shared bucket for guesses at the account's password.
+func guessKey(email string) string { return "password:" + strings.ToLower(email) }
 
 type fieldError struct {
 	Field   string `json:"field"`
@@ -97,8 +100,8 @@ func (s *server) signInPost(w http.ResponseWriter, r *http.Request) {
 		s.invalid(w, r, "sign-in.html", data, []fieldError{{"", accounts.ErrInvalidCredentials.Error()}})
 		return
 	}
-	addrKey, ipKey := "signin:addr:"+strings.ToLower(email), "signin:ip:"+s.clientIP(r)
-	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{addrKey, signInPerAddress}); wait > 0 {
+	addrKey, ipKey := guessKey(email), "signin:ip:"+s.clientIP(r)
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{addrKey, guessesPerAccount}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -160,8 +163,8 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	key, ipKey := "pwchange:user:"+itoa(u.ID), "pwchange:ip:"+s.clientIP(r)
-	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, changePerUser}); wait > 0 {
+	key, ipKey := guessKey(u.Email), "pwchange:ip:"+s.clientIP(r)
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, guessesPerAccount}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -203,8 +206,8 @@ func (s *server) deletePost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	key, ipKey := "delete:user:"+itoa(u.ID), "delete:ip:"+s.clientIP(r)
-	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, changePerUser}); wait > 0 {
+	key, ipKey := guessKey(u.Email), "delete:ip:"+s.clientIP(r)
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, guessesPerAccount}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -265,5 +268,3 @@ func (s *server) rateLimited(w http.ResponseWriter, r *http.Request, wait int) {
 	w.Header().Set("Retry-After", retryHeader(wait))
 	s.writeProblem(w, r, tooMany)
 }
-
-func itoa(n int64) string { return strconv.FormatInt(n, 10) }

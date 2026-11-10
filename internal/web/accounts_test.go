@@ -696,3 +696,41 @@ func TestInvalidBytesNeverReachPostgres(t *testing.T) {
 		t.Errorf("sign-in with invalid bytes: %d, want 422", res.StatusCode)
 	}
 }
+
+// Every route that checks the account's password (sign-in, password change,
+// deletion) shares one bucket of five failures per account, so a stolen
+// session does not get three allowances of guesses (outside review, slice 6).
+func TestPasswordGuessesAreLimitedTogether(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	b := signedIn(t, a, "guess")
+	guesser := a.browser(t)
+	guesser.ip = "10.8.0.1"
+	post := func(action string, form url.Values) int {
+		res, _ := b.post(action, action, form)
+		return res.StatusCode
+	}
+	for i := 0; i < 2; i++ { // two wrong sign-ins
+		if res, _ := guesser.signIn(b.email, "wrong password here"); res.StatusCode != 422 {
+			t.Fatalf("sign-in guess %d: %d", i+1, res.StatusCode)
+		}
+	}
+	for i := 0; i < 2; i++ { // two wrong current passwords
+		if got := post("/account/password", url.Values{"current": {"wrong password here"}, "password": {"another long password"}}); got != 422 {
+			t.Fatalf("password change guess %d: %d", i+1, got)
+		}
+	}
+	if got := post("/account/delete", url.Values{"password": {"wrong password here"}}); got != 422 { // the fifth guess
+		t.Fatalf("deletion guess: %d", got)
+	}
+	// The sixth guess is refused on every route, right password included.
+	if got := post("/account/delete", url.Values{"password": {goodPassword}}); got != 429 {
+		t.Errorf("sixth guess via deletion: %d, want 429", got)
+	}
+	if got := post("/account/password", url.Values{"current": {goodPassword}, "password": {"another long password"}}); got != 429 {
+		t.Errorf("sixth guess via password change: %d, want 429", got)
+	}
+	if res, _ := guesser.signIn(b.email, goodPassword); res.StatusCode != 429 {
+		t.Errorf("sixth guess via sign-in: %d, want 429", res.StatusCode)
+	}
+}

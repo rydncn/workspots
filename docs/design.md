@@ -104,7 +104,7 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC11. Delete account.** Given an account with sessions, reports, a problem report, a pending spot and an approved spot, when its owner confirms deletion with their password, then the user row, its sessions, reports, problem reports and pending spot are gone from the database, the approved spot remains with no author, and the visitor is signed out.
 
-**AC12. Sign-in, sign-up and password change are rate limited.** Given five failed sign-in attempts for one address, or ten from one IP, within fifteen minutes, when a sixth (or eleventh) arrives, then the response is a 429 problem with `Retry-After`, even with the right password; sign-up and password change have their own limits.
+**AC12. Sign-in, sign-up and password change are rate limited.** Given five failed sign-in attempts for one address, or ten from one IP, within fifteen minutes, when a sixth (or eleventh) arrives, then the response is a 429 problem with `Retry-After`, even with the right password; wrong guesses through password change and account deletion count in the same per-account bucket as sign-in, so a stolen session gets no extra allowance; sign-up has its own limits.
 
 ### Contributing
 

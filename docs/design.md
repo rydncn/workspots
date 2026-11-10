@@ -140,7 +140,7 @@ Numbered, one block per behaviour. Each becomes an acceptance test that names it
 
 **AC26. Nothing personal in the log.** Given a sign-up, a failed sign-in, a report with a note and a problem report, when the log output is searched, then it contains no email address, password, session token, note text or report text.
 
-**AC27. Production refuses development values.** Given `WORKSPOTS_ENV=production`, when `DATABASE_URL` is missing, carries a development password, or `BASE_URL` is not `https`, then the process exits non-zero naming the variable (not its value); given development mode, the same configuration starts.
+**AC27. Production refuses development values.** Given `WORKSPOTS_ENV=production`, when `DATABASE_URL` is missing, carries a development password, `BASE_URL` is not `https`, or `TRUSTED_PROXY` is missing (production always sits behind the TLS proxy; without it every client would share one rate-limit bucket), then the process exits non-zero naming the variable (not its value); given development mode, the same configuration starts.
 
 **AC28. Accessible in every state.** Given every page the end-to-end tests reach (empty, with results, validation failure, signed in and out, moderation), when axe-core runs against WCAG 2.2 AA, then it reports no violations; every journey can be completed with the keyboard alone with a visible focus indicator; at 320 CSS pixels wide (400% zoom) no page scrolls horizontally.
 

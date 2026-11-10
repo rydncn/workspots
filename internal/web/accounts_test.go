@@ -594,3 +594,21 @@ func TestAC11DeleteAccount(t *testing.T) {
 		t.Error("the address reached the log")
 	}
 }
+
+// Behind a proxy whose address is not TRUSTED_PROXY every client shares the
+// peer's address and so one rate-limit bucket; the misconfiguration is logged
+// once, without the address (security audit, slice 6).
+func TestUntrustedPeerIsLoggedOnce(t *testing.T) {
+	t.Parallel()
+	a := newAppWith(t, map[string]string{"TRUSTED_PROXY": "10.9.9.9"})
+	b := a.browser(t)
+	for i := 0; i < 2; i++ {
+		b.signIn(unique("peer"), goodPassword)
+	}
+	if n := strings.Count(a.logs.String(), "other than TRUSTED_PROXY"); n != 1 {
+		t.Errorf("untrusted peer logged %d times, want once", n)
+	}
+	if strings.Contains(a.logs.String(), "127.0.0.1") {
+		t.Error("the peer address reached the log")
+	}
+}

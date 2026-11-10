@@ -170,6 +170,11 @@ func (s *server) clientIP(r *http.Request) string {
 			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
+	if s.cfg.TrustedProxy != "" { // never the address: it is personal data
+		s.untrustedPeer.Do(func() {
+			s.log.WarnContext(r.Context(), "connection from a peer other than TRUSTED_PROXY: rate limits are keyed on the peer address")
+		})
+	}
 	return host
 }
 

@@ -94,7 +94,7 @@ func (s *server) signInPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	addrKey, ipKey := "signin:addr:"+strings.ToLower(email), "signin:ip:"+s.clientIP(r)
-	if wait := max(s.limits.take(addrKey, signInPerAddress), s.limits.take(ipKey, signInPerIP)); wait > 0 {
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{addrKey, signInPerAddress}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -157,7 +157,7 @@ func (s *server) passwordPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key, ipKey := "pwchange:user:"+itoa(u.ID), "pwchange:ip:"+s.clientIP(r)
-	if wait := max(s.limits.take(key, changePerUser), s.limits.take(ipKey, signInPerIP)); wait > 0 {
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, changePerUser}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}
@@ -200,7 +200,7 @@ func (s *server) deletePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key, ipKey := "delete:user:"+itoa(u.ID), "delete:ip:"+s.clientIP(r)
-	if wait := max(s.limits.take(key, changePerUser), s.limits.take(ipKey, signInPerIP)); wait > 0 {
+	if wait := s.limits.takeAll(keyLimit{ipKey, signInPerIP}, keyLimit{key, changePerUser}); wait > 0 {
 		s.rateLimited(w, r, wait)
 		return
 	}

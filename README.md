@@ -22,7 +22,7 @@ MIGRATE_DATABASE_URL=postgres://workspots_migrate:dev-migrate@localhost:5432/wor
 
 ## Configuration
 
-All from the environment (`internal/config`): `WORKSPOTS_ENV` (`development` or `production`), `ADDR`, `DATABASE_URL`, `BASE_URL`, `TRUSTED_PROXY`, `LOG_LEVEL`. In production the process refuses to start with a missing or development value. An operator creates the two database roles (`scripts/db-init.sql` shows them) with real passwords, creates the database **owned by `workspots_migrate`**, and runs `workspots migrate` as that role; the first migration refuses any other owner.
+All from the environment (`internal/config`): `WORKSPOTS_ENV` (`development` or `production`), `ADDR`, `DATABASE_URL`, `BASE_URL`, `TRUSTED_PROXY`, `LOG_LEVEL`. In production the process refuses to start with a missing or development value, `TRUSTED_PROXY` included: the app always sits behind the TLS proxy there, and without it every client would share the proxy's address in the rate limits. An operator creates the two database roles (`scripts/db-init.sql` shows them) with real passwords, creates the database **owned by `workspots_migrate`**, and runs `workspots migrate` as that role; the first migration refuses any other owner.
 
 ## Container
 

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,6 +42,9 @@ type server struct {
 	mail   mail.Sender
 	limits *limiter
 	tpl    map[string]*template.Template
+	// untrustedPeer logs once that a connection came from a peer other than
+	// TRUSTED_PROXY, so a misconfigured proxy address is visible.
+	untrustedPeer sync.Once
 }
 
 // New returns the application's handler.
